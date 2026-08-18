@@ -19,6 +19,11 @@ class PaceState(str, Enum):
     UNAVAILABLE = "Unavailable"
 
 
+class UsageMetric(str, Enum):
+    CREDITS = "credits"
+    PLAN_USAGE = "plan_usage"
+
+
 @dataclass(frozen=True)
 class Schedule:
     start_minutes: int = 8 * 60
@@ -54,14 +59,21 @@ class Observation:
     used: Decimal
     reset_at: datetime
     observed_at: datetime
+    window_start: datetime | None = None
+    metric: UsageMetric = UsageMetric.CREDITS
 
     def __post_init__(self) -> None:
         if not self.user_id.strip() or not self.workspace_id.strip():
             raise ValueError("The response did not identify a user and workspace.")
         if not self.limit.is_finite() or self.limit <= 0 or not self.used.is_finite():
-            raise ValueError("The response contains invalid credit values.")
+            raise ValueError("The response contains invalid usage values.")
         if self.reset_at.tzinfo is None or self.observed_at.tzinfo is None:
             raise ValueError("Observation timestamps must include a timezone.")
+        if self.window_start is not None:
+            if self.window_start.tzinfo is None:
+                raise ValueError("The usage-window start must include a timezone.")
+            if self.window_start >= self.reset_at:
+                raise ValueError("The usage-window start must precede its reset.")
 
     @property
     def account_key(self) -> str:
