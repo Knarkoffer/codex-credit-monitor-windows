@@ -14,21 +14,57 @@ You need:
 - A current Codex login. If you normally use Codex in WSL, open your WSL
   terminal and run `codex login` first.
 
+## Get the app
+
+This repository currently distributes the monitor as Python source rather than
+as a prebuilt installer or `.exe` file. Download the complete project folder in
+one of these ways:
+
+- On the [GitHub repository](https://github.com/Knarkoffer/codex-credit-monitor-windows),
+  select **Code**, then **Download ZIP**, and extract the ZIP to a permanent
+  folder.
+- Or clone it with Git:
+
+  ```powershell
+  git clone https://github.com/Knarkoffer/codex-credit-monitor-windows.git
+  cd codex-credit-monitor-windows
+  ```
+
+Keep the source folder and both `Launch Codex Credit Monitor` files together.
+The launcher runs the app from that folder.
+
 ## Start the monitor
 
 Double-click **`Launch Codex Credit Monitor.vbs`** in this folder. It opens the
 monitor without leaving a command window on screen.
 
-On the first launch, the launcher prepares the app automatically. This can take
-a minute or two; later launches open directly. If Windows asks whether to allow
-the script to run, allow it only when you obtained this folder from a source you
-trust.
+On the first launch, the launcher creates a private `.venv` Python environment
+inside the project folder and installs the app and its dependencies there. This
+can take a minute or two; later launches open directly. Neither `.venv` nor the
+temporary `build` folder belongs in the download: the launcher recreates what it
+needs from the tracked source files. If Windows asks whether to allow the script
+to run, allow it only when you obtained this folder from a source you trust.
 
 Minimizing the monitor hides its window and leaves a tray icon in the Windows
 notification area near the clock. Double-click the icon or choose **Open** from
 its menu to restore the window. Its tooltip shows the current period's rounded
 utilization percentage. Choose **Quit** from the tray menu, the app's Quit
 button, or the window's close button to stop the monitor.
+
+### Manual setup and start
+
+If you prefer PowerShell, or need to see installation errors, run these commands
+from the extracted or cloned project folder:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\python.exe -m codex_credit_monitor_windows
+```
+
+The generated `build` directory is only temporary packaging output. The app
+does not run from it, so it can be deleted and is intentionally excluded from
+Git.
 
 ## Set it up
 
