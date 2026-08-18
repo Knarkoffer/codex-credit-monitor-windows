@@ -10,10 +10,11 @@ from decimal import Decimal
 from tkinter import messagebox, ttk
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .domain import Evaluation, Schedule, Thresholds, evaluate
+from .domain import Evaluation, Schedule, Thresholds, UsageMetric, evaluate
 from .graph import UsageGraph
 from .settings import Settings, SettingsStore
 from .storage import CommitResult, HistoryStore
+from .tray import TrayController, create_icon_image
 from .usage import UsageError, fetch_usage, read_credentials
 from .wsl import distributions
 
@@ -26,11 +27,21 @@ class MonitorApplication:
     def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title("Codex Credit Monitor")
+        icon_image = create_icon_image()
+        from PIL import ImageTk
+
+        self.window_icon = ImageTk.PhotoImage(icon_image, master=self.root)
+        self.root.iconphoto(True, self.window_icon)
         self.root.minsize(620, 580)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.bind("<Unmap>", self._window_unmapped, add="+")
         self.settings_store = SettingsStore()
         self.settings = self.settings_store.load()
         self.store = HistoryStore()
+        self.closing = False
+        self.tray = TrayController(
+            self._queue_restore, self._queue_close, image=icon_image
+        )
         self.result: CommitResult | None = None
         self.last_error: str | None = None
         self.refreshing = False
@@ -39,6 +50,10 @@ class MonitorApplication:
         self.values: dict[str, tk.StringVar] = {
             key: tk.StringVar(value="—")
             for key in ("spent", "left", "working", "pace", "reset", "updated")
+        }
+        self.labels = {
+            "spent": tk.StringVar(value="Credits spent"),
+            "left": tk.StringVar(value="Credits left"),
         }
         self.status = tk.StringVar(value="Usage unavailable")
         self.message = tk.StringVar(value="Waiting for the first successful refresh.")
@@ -66,15 +81,20 @@ class MonitorApplication:
         details.columnconfigure(1, weight=1)
         for row, (key, label) in enumerate(
             (
-                ("spent", "Credits spent"),
-                ("left", "Credits left"),
+                ("spent", self.labels["spent"]),
+                ("left", self.labels["left"]),
                 ("working", "Working time"),
                 ("pace", "Pace difference"),
                 ("reset", "Reset"),
                 ("updated", "Updated"),
             )
         ):
-            ttk.Label(details, text=label, foreground="#555555").grid(
+            label_options = (
+                {"textvariable": label}
+                if isinstance(label, tk.StringVar)
+                else {"text": label}
+            )
+            ttk.Label(details, foreground="#555555", **label_options).grid(
                 row=row, column=0, sticky="w", padx=(0, 24), pady=2
             )
             ttk.Label(details, textvariable=self.values[key]).grid(
@@ -86,7 +106,7 @@ class MonitorApplication:
         selector = ttk.Frame(outer)
         selector.grid(row=3, column=0, sticky="ew", pady=(0, 6))
         selector.columnconfigure(1, weight=1)
-        ttk.Label(selector, text="Budget window").grid(
+        ttk.Label(selector, text="Usage window").grid(
             row=0, column=0, sticky="w", padx=(0, 10)
         )
         self.window_box = ttk.Combobox(
@@ -116,8 +136,44 @@ class MonitorApplication:
         self.root.mainloop()
 
     def close(self) -> None:
+        if self.closing:
+            return
+        self.closing = True
+        self.tray.stop()
         self.store.close()
         self.root.destroy()
+
+    def _window_unmapped(self, event) -> None:
+        if event.widget is self.root:
+            self.root.after_idle(self._hide_if_minimized)
+
+    def _hide_if_minimized(self) -> None:
+        if not self.closing and self.root.state() == "iconic":
+            self.tray.show()
+            self.root.withdraw()
+
+    def _queue_restore(self) -> None:
+        self._queue_root_action(self._restore_from_tray)
+
+    def _queue_close(self) -> None:
+        self._queue_root_action(self.close)
+
+    def _queue_root_action(self, action) -> None:
+        if self.closing:
+            return
+        try:
+            self.root.after(0, action)
+        except (RuntimeError, tk.TclError):
+            pass
+
+    def _restore_from_tray(self) -> None:
+        if self.closing:
+            return
+        self.tray.hide()
+        self.root.deiconify()
+        self.root.state("normal")
+        self.root.lift()
+        self.root.focus_force()
 
     def refresh(self) -> None:
         if self.refreshing:
@@ -202,6 +258,7 @@ class MonitorApplication:
             return
         observation = self.result.observation
         spent = observation.used / observation.limit * Decimal(100)
+        self.tray.set_utilization(spent)
         working_passed = Decimal(100) - (
             evaluation.remaining_working_percent or Decimal(0)
         )
@@ -211,12 +268,20 @@ class MonitorApplication:
         self.status.set(
             f"{evaluation.state.value}{'  ⚠' if stale or self.last_error else ''}"
         )
-        self.values["spent"].set(
-            f"{_decimal(observation.used)} of {_decimal(observation.limit)} ({_decimal(spent)}%)"
-        )
-        self.values["left"].set(
-            f"{_decimal(observation.limit - observation.used)} ({_decimal(evaluation.actual_remaining_percent)}%)"
-        )
+        if observation.metric is UsageMetric.PLAN_USAGE:
+            self.labels["spent"].set("Plan usage")
+            self.labels["left"].set("Usage remaining")
+            self.values["spent"].set(f"{_decimal(spent)}% used")
+            self.values["left"].set(f"{_decimal(evaluation.actual_remaining_percent)}%")
+        else:
+            self.labels["spent"].set("Credits spent")
+            self.labels["left"].set("Credits left")
+            self.values["spent"].set(
+                f"{_decimal(observation.used)} of {_decimal(observation.limit)} ({_decimal(spent)}%)"
+            )
+            self.values["left"].set(
+                f"{_decimal(observation.limit - observation.used)} ({_decimal(evaluation.actual_remaining_percent)}%)"
+            )
         self.values["working"].set(f"{_decimal(working_passed)}% passed")
         self.values["pace"].set(f"{_signed(evaluation.difference)} points")
         self.values["reset"].set(

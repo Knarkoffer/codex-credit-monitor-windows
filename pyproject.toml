@@ -5,11 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "codex-credit-monitor-windows"
 version = "0.1.0"
-description = "Native Windows desktop monitor for Codex credit allocation"
+description = "Native Windows desktop monitor for Codex plan usage and credit allocation"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
+    "Pillow>=10.4",
+    "pystray>=0.19.5",
     "tzdata>=2025.1; platform_system == 'Windows'",
 ]
 

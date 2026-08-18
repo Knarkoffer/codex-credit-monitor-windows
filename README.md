@@ -1,8 +1,8 @@
 # Codex Credit Monitor for Windows + WSL
 
-Codex Credit Monitor is a small Windows desktop app that shows your remaining
-Codex credits, how quickly you are using them, and when they reset. It refreshes
-when it opens and then every 15 minutes.
+Codex Credit Monitor is a small Windows desktop app that shows your Codex plan
+usage or enterprise credit allocation, how quickly you are using it, and when
+the current window resets. It refreshes when it opens and then every 15 minutes.
 
 ## Before you start
 
@@ -24,6 +24,12 @@ a minute or two; later launches open directly. If Windows asks whether to allow
 the script to run, allow it only when you obtained this folder from a source you
 trust.
 
+Minimizing the monitor hides its window and leaves a tray icon in the Windows
+notification area near the clock. Double-click the icon or choose **Open** from
+its menu to restore the window. Its tooltip shows the current period's rounded
+utilization percentage. Choose **Quit** from the tray menu, the app's Quit
+button, or the window's close button to stop the monitor.
+
 ## Set it up
 
 Select **Settings** in the monitor after it opens.
@@ -34,8 +40,13 @@ Select **Settings** in the monitor after it opens.
   `480` is 08:00 and `1020` is 17:00.
 - If you have several WSL distributions, choose the one where you ran
   `codex login`. Leave it blank to use Windows' default WSL distribution.
-- Enable notifications if you want Windows to alert you when your spending is
+- Enable notifications if you want Windows to alert you when your usage is
   critically ahead of your selected pace.
+
+The monitor detects the account plan from the Codex login and authenticated
+usage response. Personal plans show the longest available rate-limit window
+(normally the weekly limit); enterprise usage-based plans show their individual
+credit allocation.
 
 The monitor prefers a native Windows Codex login at
 `%USERPROFILE%\.codex\auth.json`. Otherwise, it reads the login from the selected

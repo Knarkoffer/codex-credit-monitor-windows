@@ -23,6 +23,13 @@ if not exist "%PYTHON%" (
 "%PYTHON%" -c "import sys; raise SystemExit(sys.version_info < (3, 12))"
 if errorlevel 1 goto :error
 
+"%PYTHON%" -c "import PIL, pystray" >nul 2>&1
+if errorlevel 1 (
+    echo Installing tray support...
+    "%PYTHON%" -m pip install .
+    if errorlevel 1 goto :error
+)
+
 "%PYTHON%" -m codex_credit_monitor_windows
 if errorlevel 1 goto :error
 

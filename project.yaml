@@ -1,0 +1,55 @@
+title: Codex Credit Monitor for Windows + WSL
+status: active
+type: utility
+primary_language: python
+languages:
+  - python
+tags:
+  - codex
+  - credit
+  - monitor
+  - usage
+  - windows
+  - wsl
+libraries:
+  python:
+    - __future__:annotations
+    - base64
+    - calendar
+    - dataclasses:dataclass
+    - datetime:date
+    - datetime:datetime
+    - datetime:time
+    - datetime:timedelta
+    - datetime:timezone
+    - decimal:Decimal
+    - decimal:InvalidOperation
+    - decimal:ROUND_HALF_UP
+    - enum:Enum
+    - json
+    - os
+    - pathlib:Path
+    - sqlite3
+    - subprocess
+    - tempfile
+    - tempfile:TemporaryDirectory
+    - threading
+    - time
+    - tkinter
+    - tkinter:messagebox
+    - tkinter:ttk
+    - typing:Any
+    - unittest.mock:patch
+    - unittest:TestCase
+    - urllib.error
+    - urllib.request
+    - zoneinfo:ZoneInfo
+    - zoneinfo:ZoneInfoNotFoundError
+    - collections.abc:Callable
+    - PIL:Image
+    - PIL:ImageDraw
+    - PIL:ImageTk
+    - pystray
+github:
+  owner: Knarkoffer
+  repo: codex-credit-monitor-windows

@@ -13,6 +13,7 @@ from .domain import (
     PaceState,
     Schedule,
     Thresholds,
+    UsageMetric,
     evaluate,
     previous_calendar_month,
 )
@@ -27,6 +28,7 @@ class Window:
     end: datetime
     timezone_name: str
     schedule: Schedule
+    metric: UsageMetric = UsageMetric.CREDITS
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,13 @@ class HistoryStore:
                 CREATE TABLE IF NOT EXISTS notification_state(account_key TEXT PRIMARY KEY, armed INTEGER NOT NULL, last_state TEXT NOT NULL, window_id INTEGER NOT NULL);
             """
             )
+            if "metric" not in {
+                row["name"]
+                for row in self.connection.execute("PRAGMA table_info(windows)")
+            }:
+                self.connection.execute(
+                    "ALTER TABLE windows ADD COLUMN metric TEXT NOT NULL DEFAULT 'credits'"
+                )
 
     def close(self) -> None:
         self.connection.close()
@@ -76,15 +85,21 @@ class HistoryStore:
                 ),
             )
             window = self._current_window(observation.account_key)
-            is_new = window is None or observation.observed_at >= window.end
+            is_new = (
+                window is None
+                or observation.observed_at >= window.end
+                or observation.metric is not window.metric
+            )
             if is_new:
                 if window:
                     self.connection.execute(
                         "UPDATE windows SET completed=1 WHERE id=?", (window.id,)
                     )
-                start = previous_calendar_month(observation.reset_at, zone)
+                start = observation.window_start or previous_calendar_month(
+                    observation.reset_at, zone
+                )
                 cursor = self.connection.execute(
-                    "INSERT INTO windows(account_key,start_at,end_at,timezone,start_minutes,end_minutes,completed) VALUES(?,?,?,?,?,?,0)",
+                    "INSERT INTO windows(account_key,start_at,end_at,timezone,start_minutes,end_minutes,completed,metric) VALUES(?,?,?,?,?,?,0,?)",
                     (
                         observation.account_key,
                         _iso(start),
@@ -92,6 +107,7 @@ class HistoryStore:
                         timezone_name,
                         schedule.start_minutes,
                         schedule.end_minutes,
+                        observation.metric.value,
                     ),
                 )
                 window = Window(
@@ -101,19 +117,22 @@ class HistoryStore:
                     observation.reset_at,
                     timezone_name,
                     schedule,
+                    observation.metric,
                 )
             elif observation.reset_at != window.end:
+                start = observation.window_start or window.start
                 self.connection.execute(
-                    "UPDATE windows SET end_at=? WHERE id=?",
-                    (_iso(observation.reset_at), window.id),
+                    "UPDATE windows SET start_at=?,end_at=? WHERE id=?",
+                    (_iso(start), _iso(observation.reset_at), window.id),
                 )
                 window = Window(
                     window.id,
                     window.account_key,
-                    window.start,
+                    start,
                     observation.reset_at,
                     window.timezone_name,
                     window.schedule,
+                    window.metric,
                 )
             self.connection.execute(
                 "INSERT INTO observations(window_id,account_key,observed_at,limit_text,used_text) VALUES(?,?,?,?,?)",
@@ -137,6 +156,7 @@ class HistoryStore:
                     window.end,
                     window.timezone_name,
                     schedule,
+                    window.metric,
                 )
             evaluation = evaluate(
                 observation,
@@ -169,6 +189,8 @@ class HistoryStore:
                 Decimal(row["used_text"]),
                 window.end,
                 _datetime(row["observed_at"]),
+                window.start,
+                window.metric,
             )
             for row in rows
         ]
@@ -198,7 +220,7 @@ class HistoryStore:
 
     def _current_window(self, account_key: str) -> Window | None:
         row = self.connection.execute(
-            "SELECT * FROM windows WHERE account_key=? ORDER BY end_at DESC LIMIT 1",
+            "SELECT * FROM windows WHERE account_key=? ORDER BY id DESC LIMIT 1",
             (account_key,),
         ).fetchone()
         return self._decode(row) if row else None
@@ -212,6 +234,7 @@ class HistoryStore:
             _datetime(row["end_at"]),
             row["timezone"],
             Schedule(row["start_minutes"], row["end_minutes"]),
+            UsageMetric(row["metric"]),
         )
 
     def _update_notification(
