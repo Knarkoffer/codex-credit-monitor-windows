@@ -1,0 +1,6 @@
+# Keep text files stable across Windows and WSL checkouts.
+* text=auto eol=lf
+
+# Windows Script Host and Command Prompt scripts conventionally use CRLF.
+*.cmd text eol=crlf
+*.vbs text eol=crlf
