@@ -6,11 +6,11 @@ languages:
   - python
 tags:
   - codex
-  - credit
-  - monitor
-  - usage
+  - chatgpt
+  - usage-monitor
   - windows
   - wsl
+  - system-tray
 libraries:
   python:
     - __future__:annotations
