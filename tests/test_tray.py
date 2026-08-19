@@ -9,6 +9,7 @@ class FakeIcon:
         self.visible = False
         self.run_count = 0
         self.stop_count = 0
+        self.notifications = []
 
     def run_detached(self) -> None:
         self.run_count += 1
@@ -16,6 +17,9 @@ class FakeIcon:
 
     def stop(self) -> None:
         self.stop_count += 1
+
+    def notify(self, message, title) -> None:
+        self.notifications.append((message, title))
 
 
 class FakeMenuItem:
@@ -89,6 +93,15 @@ class TrayControllerTests(TestCase):
         self.tray.stop()
 
         self.assertEqual(self.backend.icon.stop_count, 1)
+
+    def test_minimize_hint_is_shown_only_once(self):
+        self.tray.show_minimize_hint()
+        self.tray.show_minimize_hint()
+
+        self.assertEqual(len(self.backend.icon.notifications), 1)
+        message, title = self.backend.icon.notifications[0]
+        self.assertIn("^", message)
+        self.assertEqual(title, "Codex Credit Monitor")
 
     def test_utilization_is_rounded_half_up_in_tooltip(self):
         examples = (

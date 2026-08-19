@@ -6,6 +6,10 @@ from typing import Any
 
 
 APPLICATION_NAME = "Codex Credit Monitor"
+MINIMIZED_MESSAGE = (
+    "Still running. To reopen it, double-click the icon near the clock. "
+    "If it is not visible, select the ^ button there."
+)
 
 
 class TrayController:
@@ -24,6 +28,7 @@ class TrayController:
         self._on_open = on_open
         self._on_quit = on_quit
         self._started = False
+        self._minimize_hint_shown = False
         self._icon = backend.Icon(
             "codex_credit_monitor",
             image if image is not None else create_icon_image(),
@@ -49,6 +54,18 @@ class TrayController:
         if self._started:
             self._icon.stop()
             self._started = False
+
+    def show_minimize_hint(self) -> None:
+        """Explain the notification-area behavior on the first minimize."""
+        if self._minimize_hint_shown:
+            return
+        self._minimize_hint_shown = True
+        try:
+            self._icon.notify(MINIMIZED_MESSAGE, APPLICATION_NAME)
+        except (AttributeError, NotImplementedError, OSError):
+            # Notifications are a convenience; the tray icon remains usable
+            # on backends that do not provide them.
+            pass
 
     def set_utilization(self, percentage: Decimal) -> None:
         rounded = percentage.quantize(Decimal("1"), rounding=ROUND_HALF_UP)

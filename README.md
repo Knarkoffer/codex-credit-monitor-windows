@@ -51,6 +51,13 @@ its menu to restore the window. Its tooltip shows the current period's rounded
 utilization percentage. Choose **Quit** from the tray menu, the app's Quit
 button, or the window's close button to stop the monitor.
 
+The first time it is minimized during each run, the monitor shows a notification
+explaining where to find the icon. Windows may put new icons behind the **^**
+button in the notification area.
+
+Only one monitor can run at a time. Starting it again restores and focuses the
+existing monitor instead of opening another copy.
+
 ### Manual setup and start
 
 If you prefer PowerShell, or need to see installation errors, run these commands
