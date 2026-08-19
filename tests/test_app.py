@@ -33,12 +33,16 @@ class FakeTray:
     def __init__(self) -> None:
         self.shown = 0
         self.hidden = 0
+        self.minimize_hints = 0
 
     def show(self) -> None:
         self.shown += 1
 
     def hide(self) -> None:
         self.hidden += 1
+
+    def show_minimize_hint(self) -> None:
+        self.minimize_hints += 1
 
 
 class MinimizeToTrayTests(TestCase):
@@ -55,6 +59,7 @@ class MinimizeToTrayTests(TestCase):
         application._hide_if_minimized()
 
         self.assertEqual(application.tray.shown, 1)
+        self.assertEqual(application.tray.minimize_hints, 1)
         self.assertTrue(application.root.withdrawn)
 
     def test_non_minimized_window_is_not_hidden(self):

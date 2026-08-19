@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .domain import Evaluation, Schedule, Thresholds, UsageMetric, evaluate
 from .graph import UsageGraph
 from .settings import Settings, SettingsStore
+from .single_instance import SingleInstance
 from .storage import CommitResult, HistoryStore
 from .tray import TrayController, create_icon_image
 from .usage import UsageError, fetch_usage, read_credentials
@@ -150,6 +151,7 @@ class MonitorApplication:
     def _hide_if_minimized(self) -> None:
         if not self.closing and self.root.state() == "iconic":
             self.tray.show()
+            self.tray.show_minimize_hint()
             self.root.withdraw()
 
     def _queue_restore(self) -> None:
@@ -472,5 +474,11 @@ def _signed(value: Decimal) -> str:
 
 
 def main() -> int:
-    MonitorApplication().run()
+    instance = SingleInstance()
+    if not instance.acquire():
+        return 0
+    try:
+        MonitorApplication().run()
+    finally:
+        instance.release()
     return 0
