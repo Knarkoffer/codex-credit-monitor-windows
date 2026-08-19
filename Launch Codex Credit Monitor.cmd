@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 
 rem Start this file by double-clicking it in Windows Explorer.
 if /i not "%~1"=="--background" (
@@ -12,30 +12,71 @@ set "PYTHON=.venv\Scripts\python.exe"
 
 if not exist "%PYTHON%" (
     echo Preparing Codex Credit Monitor for its first run...
-    py -3.12 -m venv .venv >nul 2>&1
-    if errorlevel 1 py -3 -m venv .venv
-    if errorlevel 1 goto :error
+    call :find_python
+    if not defined PYTHON_COMMAND (
+        set "CCM_ERROR_MESSAGE=Python 3.12 or later was not found. Install it from python.org, then start the monitor again."
+        goto :error
+    )
+
+    !PYTHON_COMMAND! -m venv .venv
+    if errorlevel 1 (
+        set "CCM_ERROR_MESSAGE=Python was found, but it could not create the monitor's .venv folder. For details, run this CMD file with the --background argument."
+        goto :error
+    )
 
     "%PYTHON%" -m pip install .
-    if errorlevel 1 goto :error
+    if errorlevel 1 (
+        set "CCM_ERROR_MESSAGE=The monitor setup could not install its dependencies. For details, run this CMD file with the --background argument."
+        goto :error
+    )
 )
 
 "%PYTHON%" -c "import sys; raise SystemExit(sys.version_info < (3, 12))"
-if errorlevel 1 goto :error
+if errorlevel 1 (
+    set "CCM_ERROR_MESSAGE=The existing .venv uses Python older than 3.12. Delete the .venv folder next to this launcher and start it again after installing Python 3.12 or later."
+    goto :error
+)
 
 "%PYTHON%" -c "import PIL, pystray" >nul 2>&1
 if errorlevel 1 (
     echo Installing tray support...
     "%PYTHON%" -m pip install .
-    if errorlevel 1 goto :error
+    if errorlevel 1 (
+        set "CCM_ERROR_MESSAGE=The monitor could not install its tray-support dependencies. For details, run this CMD file with the --background argument."
+        goto :error
+    )
 )
 
 "%PYTHON%" -m codex_credit_monitor_windows
-if errorlevel 1 goto :error
+if errorlevel 1 (
+    set "CCM_ERROR_MESSAGE=The monitor stopped unexpectedly. For details, run this CMD file with the --background argument."
+    goto :error
+)
 
 endlocal
 exit /b 0
 
+:find_python
+set "PYTHON_COMMAND="
+
+rem Prefer the requested version, then any supported Python registered with the
+rem Windows launcher, and finally a Python available directly on PATH.
+py -3.12 -c "import sys; raise SystemExit(sys.version_info < (3, 12))" >nul 2>&1
+if not errorlevel 1 set "PYTHON_COMMAND=py -3.12"
+
+if defined PYTHON_COMMAND exit /b 0
+py -3 -c "import sys; raise SystemExit(sys.version_info < (3, 12))" >nul 2>&1
+if not errorlevel 1 set "PYTHON_COMMAND=py -3"
+
+if defined PYTHON_COMMAND exit /b 0
+python -c "import sys; raise SystemExit(sys.version_info < (3, 12))" >nul 2>&1
+if not errorlevel 1 set "PYTHON_COMMAND=python"
+
+exit /b 0
+
 :error
+if not defined CCM_ERROR_MESSAGE set "CCM_ERROR_MESSAGE=Codex Credit Monitor could not start. For details, run this CMD file with the --background argument."
+echo %CCM_ERROR_MESSAGE%
+if defined CCM_ERROR_FILE > "%CCM_ERROR_FILE%" echo %CCM_ERROR_MESSAGE%
 endlocal
 exit /b 1
