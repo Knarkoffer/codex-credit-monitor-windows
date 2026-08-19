@@ -101,9 +101,15 @@ notification state. Your settings and Codex login are kept.
 
 **The monitor does not open**
 
-Install Python 3.12 or later, then double-click the launcher again. If Python
-was updated after an earlier failed setup, delete the `.venv` folder next to the
-launcher and try again.
+Install Python 3.12 or later, then double-click the launcher again. The
+launcher supports Python installed through the Windows `py` launcher or a
+`python` command on your PATH. If Python was updated after an earlier failed
+setup, delete the `.venv` folder next to the launcher and try again. To see
+full setup errors, open Command Prompt in the project folder and run:
+
+```cmd
+"Launch Codex Credit Monitor.cmd" --background
+```
 
 **The monitor cannot find your Codex login**
 
