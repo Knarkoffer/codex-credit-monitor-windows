@@ -33,7 +33,7 @@ class MonitorApplication:
 
         self.window_icon = ImageTk.PhotoImage(icon_image, master=self.root)
         self.root.iconphoto(True, self.window_icon)
-        self.root.minsize(620, 580)
+        self.root.minsize(620, 650)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.bind("<Unmap>", self._window_unmapped, add="+")
         self.settings_store = SettingsStore()
@@ -72,11 +72,17 @@ class MonitorApplication:
         header = ttk.Frame(outer)
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
+        ttk.Label(
+            header,
+            text="Usage pace",
+            foreground="#555555",
+            font=("Segoe UI", 8, "bold"),
+        ).grid(row=0, column=0, sticky="w")
         ttk.Label(header, textvariable=self.status, font=("Segoe UI", 16, "bold")).grid(
-            row=0, column=0, sticky="w"
+            row=1, column=0, sticky="w"
         )
         self.refresh_button = ttk.Button(header, text="Refresh", command=self.refresh)
-        self.refresh_button.grid(row=0, column=1, sticky="e")
+        self.refresh_button.grid(row=0, column=1, rowspan=2, sticky="e")
         details = ttk.Frame(outer, padding=(0, 12, 0, 4))
         details.grid(row=1, column=0, sticky="ew")
         details.columnconfigure(1, weight=1)

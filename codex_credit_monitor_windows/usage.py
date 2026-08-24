@@ -46,6 +46,7 @@ class Credentials:
     user_id: str | None
     expires_at: datetime | None
     plan_type: str | None = None
+    wsl_distro: str | None = None
 
 
 def read_credentials(
@@ -98,6 +99,7 @@ def read_credentials(
         _string(user_id),
         expires_at,
         _string(plan_type),
+        wsl_distro,
     )
 
 
@@ -137,6 +139,12 @@ def fetch_usage(credentials: Credentials, now: datetime | None = None) -> Observ
             "The Codex OAuth token has no usable expiration time. Run `codex login`, then refresh this monitor."
         )
     if credentials.expires_at <= observed_at:
+        if credentials.wsl_distro:
+            raise UsageError(
+                "The stored Codex OAuth token for WSL distribution "
+                f"'{credentials.wsl_distro}' has expired. Start Codex in that "
+                "WSL distribution to renew it, then refresh this monitor."
+            )
         raise UsageError(
             "The Codex OAuth token has expired. Run `codex login`, then refresh this monitor."
         )

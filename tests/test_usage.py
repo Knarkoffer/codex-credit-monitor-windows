@@ -166,6 +166,23 @@ class UsageDecoderTests(TestCase):
                 self.now,
             )
 
+    def test_expired_wsl_token_explains_how_to_renew_it(self):
+        with self.assertRaisesRegex(
+            UsageError,
+            "Start Codex in that WSL distribution to renew it",
+        ) as caught:
+            fetch_usage(
+                Credentials(
+                    "secret",
+                    "workspace",
+                    "user",
+                    self.now - timedelta(seconds=1),
+                    wsl_distro="Ubuntu-24.04",
+                ),
+                self.now,
+            )
+        self.assertIn("Ubuntu-24.04", str(caught.exception))
+
 
 def _token(payload):
     encoded = (
