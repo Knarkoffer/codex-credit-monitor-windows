@@ -12,7 +12,7 @@ HUNDRED = Decimal("100")
 
 
 class PaceState(str, Enum):
-    BEHIND = "Behind"
+    BEHIND = "Safe"
     ON_PACE = "On pace"
     AHEAD = "Ahead"
     CRITICAL = "Critically ahead"
