@@ -25,6 +25,9 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["codex_credit_monitor_windows*"]
 
+[tool.setuptools.package-data]
+codex_credit_monitor_windows = ["assets/*.png"]
+
 [tool.black]
 target-version = ["py312"]
 
