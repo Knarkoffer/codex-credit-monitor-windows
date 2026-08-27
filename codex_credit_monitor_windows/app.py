@@ -22,10 +22,28 @@ from .wsl import distributions
 
 REFRESH_MILLISECONDS = 15 * 60 * 1000
 STALE_SECONDS = 30 * 60
+WINDOWS_APP_USER_MODEL_ID = "CodexCreditMonitor.Windows"
+
+
+def _configure_windows_app_identity(shell32=None) -> None:
+    """Give this Python-hosted app its own Windows taskbar identity."""
+    if os.name != "nt":
+        return
+    try:
+        if shell32 is None:
+            from ctypes import windll
+
+            shell32 = windll.shell32
+        shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_USER_MODEL_ID)
+    except (AttributeError, ImportError, OSError):
+        # Older/non-standard Windows environments can still use the app; only
+        # taskbar grouping and icon selection fall back to Python's defaults.
+        pass
 
 
 class MonitorApplication:
     def __init__(self) -> None:
+        _configure_windows_app_identity()
         self.root = tk.Tk()
         self.root.title("Codex Credit Monitor")
         icon_image = create_icon_image()

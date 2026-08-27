@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from decimal import ROUND_HALF_UP, Decimal
+from importlib.resources import files
 from typing import Any
 
 
@@ -80,11 +81,8 @@ class TrayController:
 
 
 def create_icon_image() -> Any:
-    from PIL import Image, ImageDraw
+    from PIL import Image
 
-    image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    drawing = ImageDraw.Draw(image)
-    drawing.rounded_rectangle((4, 4, 60, 60), radius=14, fill=(32, 33, 35, 255))
-    drawing.arc((14, 14, 50, 50), start=-90, end=205, fill=(16, 163, 127, 255), width=7)
-    drawing.ellipse((27, 27, 37, 37), fill=(245, 245, 245, 255))
-    return image
+    icon = files("codex_credit_monitor_windows").joinpath("assets", "app_icon.png")
+    with icon.open("rb") as icon_file:
+        return Image.open(icon_file).convert("RGBA")

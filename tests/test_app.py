@@ -1,6 +1,37 @@
 from unittest import TestCase
+from unittest.mock import patch
 
-from codex_credit_monitor_windows.app import MonitorApplication
+from codex_credit_monitor_windows.app import (
+    WINDOWS_APP_USER_MODEL_ID,
+    MonitorApplication,
+    _configure_windows_app_identity,
+)
+
+
+class FakeShell32:
+    def __init__(self) -> None:
+        self.app_ids = []
+
+    def SetCurrentProcessExplicitAppUserModelID(self, app_id) -> None:
+        self.app_ids.append(app_id)
+
+
+class WindowsIdentityTests(TestCase):
+    def test_application_registers_its_own_windows_taskbar_identity(self):
+        shell32 = FakeShell32()
+
+        with patch("codex_credit_monitor_windows.app.os.name", "nt"):
+            _configure_windows_app_identity(shell32)
+
+        self.assertEqual(shell32.app_ids, [WINDOWS_APP_USER_MODEL_ID])
+
+    def test_application_does_not_call_windows_api_on_other_platforms(self):
+        shell32 = FakeShell32()
+
+        with patch("codex_credit_monitor_windows.app.os.name", "posix"):
+            _configure_windows_app_identity(shell32)
+
+        self.assertEqual(shell32.app_ids, [])
 
 
 class FakeRoot:

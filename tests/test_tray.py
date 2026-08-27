@@ -1,7 +1,16 @@
 from decimal import Decimal
 from unittest import TestCase
 
-from codex_credit_monitor_windows.tray import TrayController
+from codex_credit_monitor_windows.tray import TrayController, create_icon_image
+
+
+class IconImageTests(TestCase):
+    def test_packaged_icon_is_loaded_with_transparency(self):
+        image = create_icon_image()
+
+        self.assertEqual(image.size, (512, 512))
+        self.assertEqual(image.mode, "RGBA")
+        self.assertEqual(image.getpixel((0, 0))[3], 0)
 
 
 class FakeIcon:
