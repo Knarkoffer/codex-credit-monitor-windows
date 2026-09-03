@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 
 from codex_credit_monitor_windows.domain import UsageMetric
 from codex_credit_monitor_windows.usage import (
@@ -148,6 +149,25 @@ class UsageDecoderTests(TestCase):
             )
             credentials = read_credentials(path=path)
         self.assertEqual(credentials.plan_type, "plus")
+
+    @patch(
+        "codex_credit_monitor_windows.usage.distribution_is_running",
+        return_value=False,
+    )
+    @patch("codex_credit_monitor_windows.usage.os.name", "nt")
+    def test_stopped_configured_wsl_distribution_has_specific_error(
+        self, _running_state
+    ):
+        with self.assertRaisesRegex(
+            UsageError,
+            "selected WSL distribution 'Ubuntu-24.04' is stopped",
+        ) as caught:
+            read_credentials(wsl_distro="Ubuntu-24.04")
+
+        self.assertIn(
+            "Please start that WSL distribution, then refresh this monitor.",
+            str(caught.exception),
+        )
 
     def test_rejects_partial_response_without_exposing_body(self):
         secret = "private-value-that-must-not-appear"

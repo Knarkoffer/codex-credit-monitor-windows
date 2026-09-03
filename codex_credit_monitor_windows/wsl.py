@@ -4,6 +4,25 @@ import os
 import subprocess
 
 
+def distribution_is_running(name: str) -> bool | None:
+    """Return whether an installed WSL distribution is running.
+
+    ``None`` means that WSL could not be queried or the named distribution is
+    not installed. Using the quiet listings avoids relying on localized state
+    labels in ``wsl.exe --list --verbose``.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        installed = _listed_distributions(["--list", "--quiet"])
+        if not _contains_distribution(installed, name):
+            return None
+        running = _listed_distributions(["--list", "--running", "--quiet"])
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return _contains_distribution(running, name)
+
+
 def distributions() -> list[str]:
     """Return installed WSL distributions with Windows' default listed first."""
     if os.name != "nt":
@@ -63,3 +82,20 @@ def _decode_wsl_output(data: bytes) -> str:
     ):
         return data.decode("utf-16")
     return data.decode("utf-8", errors="replace")
+
+
+def _listed_distributions(arguments: list[str]) -> list[str]:
+    output = subprocess.run(
+        ["wsl.exe", *arguments],
+        check=True,
+        capture_output=True,
+        timeout=10,
+    ).stdout
+    return [
+        line.strip() for line in _decode_wsl_output(output).splitlines() if line.strip()
+    ]
+
+
+def _contains_distribution(distributions: list[str], name: str) -> bool:
+    expected = name.casefold()
+    return any(candidate.casefold() == expected for candidate in distributions)

@@ -120,6 +120,9 @@ full setup errors, open Command Prompt in the project folder and run:
 
 **The monitor cannot find your Codex login**
 
+If the selected WSL distribution is stopped, start that distribution and then
+refresh the monitor.
+
 In the WSL distribution you use for Codex, run `codex login`. If you have more
 than one distribution, select it in **Settings**, then refresh the monitor.
 
