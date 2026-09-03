@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .domain import Observation, UsageMetric
+from .wsl import distribution_is_running
 
 
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
@@ -111,6 +112,11 @@ def _read_auth_file(wsl_distro: str | None) -> str:
         return (Path.home() / ".codex" / "auth.json").read_text(encoding="utf-8")
     distro = wsl_distro or os.environ.get("CODEX_CREDIT_MONITOR_WSL_DISTRO")
     if distro:
+        if distribution_is_running(distro) is False:
+            raise UsageError(
+                f"The selected WSL distribution '{distro}' is stopped. "
+                "Please start that WSL distribution, then refresh this monitor."
+            )
         return _read_wsl_auth_file(distro)
     native_path = (
         Path(os.environ.get("USERPROFILE", str(Path.home()))) / ".codex" / "auth.json"
