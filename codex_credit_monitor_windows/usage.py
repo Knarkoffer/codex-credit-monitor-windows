@@ -114,8 +114,8 @@ def _read_auth_file(wsl_distro: str | None) -> str:
     if distro:
         if distribution_is_running(distro) is False:
             raise UsageError(
-                f"The selected WSL distribution '{distro}' is stopped. "
-                "Please start that WSL distribution, then refresh this monitor."
+                f"Selected WSL distribution '{distro}' is not started yet, "
+                "cannot access token."
             )
         return _read_wsl_auth_file(distro)
     native_path = (

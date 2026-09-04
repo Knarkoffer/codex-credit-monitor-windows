@@ -158,15 +158,13 @@ class UsageDecoderTests(TestCase):
     def test_stopped_configured_wsl_distribution_has_specific_error(
         self, _running_state
     ):
-        with self.assertRaisesRegex(
-            UsageError,
-            "selected WSL distribution 'Ubuntu-24.04' is stopped",
-        ) as caught:
+        with self.assertRaises(UsageError) as caught:
             read_credentials(wsl_distro="Ubuntu-24.04")
 
-        self.assertIn(
-            "Please start that WSL distribution, then refresh this monitor.",
+        self.assertEqual(
             str(caught.exception),
+            "Selected WSL distribution 'Ubuntu-24.04' is not started yet, "
+            "cannot access token.",
         )
 
     def test_rejects_partial_response_without_exposing_body(self):
