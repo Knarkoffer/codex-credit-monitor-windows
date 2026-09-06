@@ -4,7 +4,7 @@ import tkinter as tk
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from .domain import Observation, working_guide_points
+from .domain import Observation, UsageMode, pace_guide_points
 from .storage import Window
 
 
@@ -79,7 +79,7 @@ class UsageGraph(tk.Canvas):
         self._draw_time_grid(window, point, top, plot_height)
         guide = [
             point(at, float(value / 100))
-            for at, value in working_guide_points(
+            for at, value in pace_guide_points(
                 window.start, window.end, window.schedule, zone
             )
         ]
@@ -168,7 +168,11 @@ class UsageGraph(tk.Canvas):
         self.create_text(
             left + 100,
             30,
-            text="Working-time guide",
+            text=(
+                "Working-time guide"
+                if self.window_data and self.window_data.schedule.mode is UsageMode.WORK
+                else "Calendar-time guide"
+            ),
             fill=GUIDE,
             anchor="w",
             font=("Segoe UI", 9, "bold"),

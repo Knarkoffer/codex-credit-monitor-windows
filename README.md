@@ -79,12 +79,28 @@ Select **Settings** in the monitor after it opens.
 
 - Set your time zone with an IANA name, such as `Europe/Stockholm` or
   `America/New_York`.
-- Set your working day. The start and end values are minutes after midnight:
-  `480` is 08:00 and `1020` is 17:00.
+- Choose **Personal** or **Work** under **Usage mode**. Personal spreads your
+  usage pace evenly across the full reset period, including evenings and
+  weekends, with no working hours to configure. Work counts Monday through
+  Friday within your chosen working hours.
+- In Work mode, set your working day. The start and end values are minutes
+  after midnight: `480` is 08:00 and `1020` is 17:00.
 - If you have several WSL distributions, choose the one where you ran
   `codex login`. Leave it blank to use Windows' default WSL distribution.
 - Enable notifications if you want Windows to alert you when your usage is
   critically ahead of your selected pace.
+
+On the first launch, the monitor defaults to Work if the Windows computer is
+joined to a domain, and Personal otherwise. If domain membership cannot be
+determined, it uses Personal. This initial choice is saved immediately; later
+launches use your saved mode even if domain membership changes. You can change
+the mode in Settings at any time. Existing settings are preserved, including
+Work mode for settings saved before the mode selector was added.
+
+Either mode works with either account type. Switching modes
+updates the current period's pace and graph immediately, keeps your saved
+working hours and usage history, and applies to future periods. Completed
+periods retain their saved mode. Switching itself does not send an alert.
 
 The monitor detects the account plan from the Codex login and authenticated
 usage response. Personal plans show the longest available rate-limit window
@@ -133,8 +149,9 @@ allocation. Run `codex login` again if you need to choose a different account.
 
 **The displayed pace is wrong**
 
-Review the time zone and working-day values in **Settings**. The pace calculation
-uses working hours only, so a wrong time zone or schedule changes the result.
+Review **Usage mode** in **Settings**. Personal uses elapsed time across the
+entire reset period. Work uses weekday working hours only, so check the time
+zone and working-day values when using that mode.
 
 ## Privacy
 

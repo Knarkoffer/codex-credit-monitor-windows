@@ -11,4 +11,3 @@ class SingleInstanceTests(TestCase):
         with patch("codex_credit_monitor_windows.single_instance.os.name", "posix"):
             self.assertTrue(instance.acquire())
             instance.release()
-

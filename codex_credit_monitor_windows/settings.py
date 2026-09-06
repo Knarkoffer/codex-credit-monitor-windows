@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import tempfile
@@ -7,7 +8,37 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from .domain import Schedule, Thresholds
+from .domain import Schedule, Thresholds, UsageMode
+
+
+def _is_domain_joined(netapi32=None) -> bool:
+    """Read local Windows domain membership; unknown status defaults to personal."""
+    if os.name != "nt":
+        return False
+    try:
+        if netapi32 is None:
+            netapi32 = ctypes.WinDLL("netapi32.dll")
+        get_join = netapi32.NetGetJoinInformation
+        get_join.argtypes = [
+            ctypes.c_wchar_p,
+            ctypes.POINTER(ctypes.c_wchar_p),
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        get_join.restype = ctypes.c_uint32
+        free_buffer = netapi32.NetApiBufferFree
+        free_buffer.argtypes = [ctypes.c_void_p]
+        free_buffer.restype = ctypes.c_uint32
+        name = ctypes.c_wchar_p()
+        status = ctypes.c_int()
+        try:
+            result = get_join(None, ctypes.byref(name), ctypes.byref(status))
+            # NETSETUP_JOIN_STATUS.NetSetupDomainName is 3.
+            return result == 0 and status.value == 3
+        finally:
+            if name:
+                free_buffer(name)
+    except (AttributeError, OSError):
+        return False
 
 
 def app_data_home() -> Path:
@@ -19,7 +50,7 @@ def app_data_home() -> Path:
 
 @dataclass(frozen=True)
 class Settings:
-    schedule: Schedule = Schedule()
+    schedule: Schedule = Schedule(mode=UsageMode.PERSONAL)
     thresholds: Thresholds = Thresholds()
     notifications_enabled: bool = True
     wsl_distro: str | None = None
@@ -32,10 +63,23 @@ class SettingsStore:
 
     def load(self) -> Settings:
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            content = self.path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            mode = UsageMode.WORK if _is_domain_joined() else UsageMode.PERSONAL
+            settings = Settings(schedule=Schedule(mode=mode))
+            self.save(settings)
+            return settings
+        except (OSError, UnicodeError):
+            return Settings()
+        try:
+            raw = json.loads(content)
             distro, timezone_name = raw.get("wsl_distro"), raw.get("timezone_name")
             return Settings(
-                Schedule(int(raw["start_minutes"]), int(raw["end_minutes"])),
+                Schedule(
+                    int(raw["start_minutes"]),
+                    int(raw["end_minutes"]),
+                    UsageMode(raw.get("usage_mode", "work")),
+                ),
                 Thresholds(
                     Decimal(raw["tolerance"]),
                     Decimal(raw["critical_base"]),
@@ -49,12 +93,13 @@ class SettingsStore:
                     else None
                 ),
             )
-        except (OSError, ValueError, TypeError, KeyError):
+        except (ValueError, TypeError, KeyError, AttributeError):
             return Settings()
 
     def save(self, settings: Settings) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
+            "usage_mode": settings.schedule.mode.value,
             "start_minutes": settings.schedule.start_minutes,
             "end_minutes": settings.schedule.end_minutes,
             "tolerance": str(settings.thresholds.tolerance),

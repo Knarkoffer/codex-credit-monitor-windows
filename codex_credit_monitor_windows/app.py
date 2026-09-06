@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import subprocess
 import threading
 import time
 import tkinter as tk
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from tkinter import messagebox, ttk
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .domain import Evaluation, Schedule, Thresholds, UsageMetric, evaluate
+from .domain import Evaluation, Schedule, Thresholds, UsageMetric, UsageMode, evaluate
 from .graph import UsageGraph
 from .settings import Settings, SettingsStore
 from .single_instance import SingleInstance
@@ -73,6 +75,7 @@ class MonitorApplication:
         self.labels = {
             "spent": tk.StringVar(value="Credits spent"),
             "left": tk.StringVar(value="Credits left"),
+            "working": tk.StringVar(),
         }
         self.status = tk.StringVar(value="Usage unavailable")
         self.message = tk.StringVar(value="Waiting for the first successful refresh.")
@@ -108,7 +111,7 @@ class MonitorApplication:
             (
                 ("spent", self.labels["spent"]),
                 ("left", self.labels["left"]),
-                ("working", "Working time"),
+                ("working", self.labels["working"]),
                 ("pace", "Pace difference"),
                 ("reset", "Reset"),
                 ("updated", "Updated"),
@@ -275,6 +278,11 @@ class MonitorApplication:
         )
 
     def _refresh_display(self) -> None:
+        self.labels["working"].set(
+            "Calendar time (Personal)"
+            if self.settings.schedule.mode is UsageMode.PERSONAL
+            else "Working time (Work)"
+        )
         evaluation = self._current_evaluation()
         if self.result is None or evaluation is None:
             self.status.set("Refreshing…" if self.refreshing else "Usage unavailable")
@@ -285,9 +293,7 @@ class MonitorApplication:
         observation = self.result.observation
         spent = observation.used / observation.limit * Decimal(100)
         self.tray.set_utilization(spent)
-        working_passed = Decimal(100) - (
-            evaluation.remaining_working_percent or Decimal(0)
-        )
+        remaining_time = evaluation.remaining_time_percent
         stale = datetime.now(timezone.utc) >= observation.observed_at + timedelta(
             seconds=STALE_SECONDS
         )
@@ -308,8 +314,16 @@ class MonitorApplication:
             self.values["left"].set(
                 f"{_decimal(observation.limit - observation.used)} ({_decimal(evaluation.actual_remaining_percent)}%)"
             )
-        self.values["working"].set(f"{_decimal(working_passed)}% passed")
-        self.values["pace"].set(f"{_signed(evaluation.difference)} points")
+        self.values["working"].set(
+            f"{_decimal(Decimal(100) - remaining_time)}% passed"
+            if remaining_time is not None
+            else "Unavailable"
+        )
+        self.values["pace"].set(
+            f"{_signed(evaluation.difference)} points"
+            if evaluation.guide_remaining_percent is not None
+            else "Unavailable"
+        )
         self.values["reset"].set(
             observation.reset_at.astimezone().strftime("%d %b %Y, %H:%M")
         )
@@ -365,9 +379,25 @@ class MonitorApplication:
             parent=self.root,
         ):
             self.store.delete_all()
+            self.result = None
+            self.selected_window = None
             self.graph.clear()
             self.window_box["values"] = []
             self.window_choice.set("")
+
+    def _apply_settings(self, settings: Settings) -> None:
+        self.settings_store.save(settings)
+        self.settings = settings
+        if self.result is not None:
+            window = self.store.update_pacing(
+                self.result.window.id,
+                settings.schedule,
+                settings.thresholds,
+                _timezone_name(settings.timezone_name),
+            )
+            self.result = replace(self.result, window=window, notify=False)
+            self._reload_windows()
+        self._refresh_display()
 
     def show_settings(self) -> None:
         dialog = tk.Toplevel(self.root)
@@ -379,6 +409,7 @@ class MonitorApplication:
             installed_distros[0] if installed_distros else ""
         )
         fields = {
+            "mode": tk.StringVar(value=self.settings.schedule.mode.value.title()),
             "start": tk.StringVar(value=str(self.settings.schedule.start_minutes)),
             "end": tk.StringVar(value=str(self.settings.schedule.end_minutes)),
             "tolerance": tk.StringVar(value=str(self.settings.thresholds.tolerance)),
@@ -390,6 +421,21 @@ class MonitorApplication:
             ),
             "notify": tk.BooleanVar(value=self.settings.notifications_enabled),
         }
+        ttk.Label(dialog, text="Usage mode").grid(
+            row=0, column=0, padx=16, pady=5, sticky="w"
+        )
+        mode_box = ttk.Combobox(
+            dialog,
+            textvariable=fields["mode"],
+            values=("Personal", "Work"),
+            state="readonly",
+            width=21,
+        )
+        mode_box.grid(row=0, column=1, padx=16, pady=5)
+        mode_help = tk.StringVar()
+        ttk.Label(dialog, textvariable=mode_help, wraplength=460).grid(
+            row=1, column=0, columnspan=2, padx=16, pady=(0, 8), sticky="w"
+        )
         labels = (
             ("Workday start (minutes after midnight)", "start"),
             ("Workday end", "end"),
@@ -399,10 +445,10 @@ class MonitorApplication:
             ("WSL distribution (optional)", "distro"),
             ("Time zone (IANA, e.g. Europe/Stockholm)", "timezone"),
         )
-        for row, (label, key) in enumerate(labels):
-            ttk.Label(dialog, text=label).grid(
-                row=row, column=0, padx=16, pady=5, sticky="w"
-            )
+        work_widgets = []
+        for row, (label, key) in enumerate(labels, start=2):
+            label_widget = ttk.Label(dialog, text=label)
+            label_widget.grid(row=row, column=0, padx=16, pady=5, sticky="w")
             if key == "distro" and installed_distros:
                 ttk.Combobox(
                     dialog,
@@ -412,20 +458,42 @@ class MonitorApplication:
                     width=21,
                 ).grid(row=row, column=1, padx=16, pady=5)
             else:
-                ttk.Entry(dialog, textvariable=fields[key], width=24).grid(
-                    row=row, column=1, padx=16, pady=5
-                )
+                entry = ttk.Entry(dialog, textvariable=fields[key], width=24)
+                entry.grid(row=row, column=1, padx=16, pady=5)
+                if key in ("start", "end"):
+                    work_widgets.extend((label_widget, entry))
+
+        def update_mode(_event=None) -> None:
+            personal = fields["mode"].get() == "Personal"
+            mode_help.set(
+                "Pace uses the entire reset period, including evenings and weekends."
+                if personal
+                else "Pace uses your working hours, Monday through Friday."
+            )
+            for widget in work_widgets:
+                widget.grid_remove() if personal else widget.grid()
+
+        mode_box.bind("<<ComboboxSelected>>", update_mode)
+        update_mode()
         ttk.Checkbutton(
             dialog, text="Enable critical-pace notifications", variable=fields["notify"]
-        ).grid(row=len(labels), column=0, columnspan=2, padx=16, pady=8, sticky="w")
+        ).grid(row=len(labels) + 2, column=0, columnspan=2, padx=16, pady=8, sticky="w")
 
         def save() -> None:
             try:
                 timezone_name = fields["timezone"].get().strip() or None
                 if timezone_name:
                     ZoneInfo(timezone_name)
-                self.settings = Settings(
-                    Schedule(int(fields["start"].get()), int(fields["end"].get())),
+                mode = UsageMode(fields["mode"].get().lower())
+                schedule = (
+                    replace(self.settings.schedule, mode=mode)
+                    if mode is UsageMode.PERSONAL
+                    else Schedule(
+                        int(fields["start"].get()), int(fields["end"].get()), mode
+                    )
+                )
+                settings = Settings(
+                    schedule,
                     Thresholds(
                         Decimal(fields["tolerance"].get()),
                         Decimal(fields["base"].get()),
@@ -435,18 +503,23 @@ class MonitorApplication:
                     fields["distro"].get().strip() or None,
                     timezone_name,
                 )
-                self.settings_store.save(self.settings)
-            except (ValueError, ArithmeticError) as error:
+                self._apply_settings(settings)
+            except (
+                ValueError,
+                ArithmeticError,
+                ZoneInfoNotFoundError,
+                OSError,
+                sqlite3.Error,
+            ) as error:
                 messagebox.showerror("Invalid settings", str(error), parent=dialog)
                 return
             dialog.destroy()
-            self._refresh_display()
 
         ttk.Button(dialog, text="Cancel", command=dialog.destroy).grid(
-            row=len(labels) + 1, column=0, padx=16, pady=(4, 16), sticky="w"
+            row=len(labels) + 3, column=0, padx=16, pady=(4, 16), sticky="w"
         )
         ttk.Button(dialog, text="Save", command=save).grid(
-            row=len(labels) + 1, column=1, padx=16, pady=(4, 16), sticky="e"
+            row=len(labels) + 3, column=1, padx=16, pady=(4, 16), sticky="e"
         )
 
     def _notify_critical(self) -> None:
