@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 from zoneinfo import ZoneInfo
@@ -24,10 +24,16 @@ class UsageMetric(str, Enum):
     PLAN_USAGE = "plan_usage"
 
 
+class UsageMode(str, Enum):
+    PERSONAL = "personal"
+    WORK = "work"
+
+
 @dataclass(frozen=True)
 class Schedule:
     start_minutes: int = 8 * 60
     end_minutes: int = 17 * 60
+    mode: UsageMode = UsageMode.WORK
 
     def __post_init__(self) -> None:
         if not 0 <= self.start_minutes < self.end_minutes <= 24 * 60:
@@ -86,7 +92,7 @@ class Evaluation:
     difference: Decimal
     actual_remaining_percent: Decimal
     guide_remaining_percent: Decimal | None
-    remaining_working_percent: Decimal | None
+    remaining_time_percent: Decimal | None
     critical_threshold: Decimal | None
 
 
@@ -147,6 +153,27 @@ def working_guide_points(
     ]
 
 
+def pace_seconds(
+    start: datetime, end: datetime, schedule: Schedule, zone: ZoneInfo
+) -> float:
+    if schedule.mode is UsageMode.PERSONAL:
+        return max(
+            0.0,
+            (
+                end.astimezone(timezone.utc) - start.astimezone(timezone.utc)
+            ).total_seconds(),
+        )
+    return working_seconds(start, end, schedule, zone)
+
+
+def pace_guide_points(
+    start: datetime, end: datetime, schedule: Schedule, zone: ZoneInfo
+) -> list[tuple[datetime, Decimal]]:
+    if schedule.mode is UsageMode.PERSONAL:
+        return [(start, Decimal(0)), (end, HUNDRED)] if end > start else []
+    return working_guide_points(start, end, schedule, zone)
+
+
 def evaluate(
     observation: Observation,
     at: datetime,
@@ -158,14 +185,14 @@ def evaluate(
     actual_remaining = (
         (observation.limit - observation.used) / observation.limit * HUNDRED
     )
-    total = working_seconds(window_start, observation.reset_at, schedule, zone)
+    total = pace_seconds(window_start, observation.reset_at, schedule, zone)
     if total <= 0:
         return Evaluation(
             PaceState.UNAVAILABLE, Decimal(0), actual_remaining, None, None, None
         )
     clamped = min(max(at, window_start), observation.reset_at)
     elapsed_fraction = Decimal(
-        str(working_seconds(window_start, clamped, schedule, zone) / total)
+        str(pace_seconds(window_start, clamped, schedule, zone) / total)
     )
     remaining = max(Decimal(0), min(HUNDRED, HUNDRED * (Decimal(1) - elapsed_fraction)))
     guide_remaining = HUNDRED * (Decimal(1) - elapsed_fraction)

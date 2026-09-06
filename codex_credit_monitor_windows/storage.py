@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -14,6 +14,7 @@ from .domain import (
     Schedule,
     Thresholds,
     UsageMetric,
+    UsageMode,
     evaluate,
     previous_calendar_month,
 )
@@ -63,6 +64,13 @@ class HistoryStore:
                 self.connection.execute(
                     "ALTER TABLE windows ADD COLUMN metric TEXT NOT NULL DEFAULT 'credits'"
                 )
+            if "usage_mode" not in {
+                row["name"]
+                for row in self.connection.execute("PRAGMA table_info(windows)")
+            }:
+                self.connection.execute(
+                    "ALTER TABLE windows ADD COLUMN usage_mode TEXT NOT NULL DEFAULT 'work'"
+                )
 
     def close(self) -> None:
         self.connection.close()
@@ -99,7 +107,7 @@ class HistoryStore:
                     observation.reset_at, zone
                 )
                 cursor = self.connection.execute(
-                    "INSERT INTO windows(account_key,start_at,end_at,timezone,start_minutes,end_minutes,completed,metric) VALUES(?,?,?,?,?,?,0,?)",
+                    "INSERT INTO windows(account_key,start_at,end_at,timezone,start_minutes,end_minutes,completed,metric,usage_mode) VALUES(?,?,?,?,?,?,0,?,?)",
                     (
                         observation.account_key,
                         _iso(start),
@@ -108,6 +116,7 @@ class HistoryStore:
                         schedule.start_minutes,
                         schedule.end_minutes,
                         observation.metric.value,
+                        schedule.mode.value,
                     ),
                 )
                 window = Window(
@@ -144,20 +153,11 @@ class HistoryStore:
                     str(observation.used),
                 ),
             )
-            if window.schedule != schedule:
-                self.connection.execute(
-                    "UPDATE windows SET start_minutes=?,end_minutes=? WHERE id=?",
-                    (schedule.start_minutes, schedule.end_minutes, window.id),
-                )
-                window = Window(
-                    window.id,
-                    window.account_key,
-                    window.start,
-                    window.end,
-                    window.timezone_name,
-                    schedule,
-                    window.metric,
-                )
+            pacing_changed = (
+                window.schedule != schedule or window.timezone_name != timezone_name
+            )
+            if pacing_changed:
+                window = self._set_pacing(window, schedule, timezone_name)
             evaluation = evaluate(
                 observation,
                 observation.observed_at,
@@ -171,9 +171,49 @@ class HistoryStore:
                 observation,
                 evaluation,
                 self._update_notification(
-                    observation.account_key, window.id, evaluation, is_new
+                    observation.account_key,
+                    window.id,
+                    evaluation,
+                    is_new or pacing_changed,
                 ),
             )
+
+    def update_pacing(
+        self,
+        window_id: int,
+        schedule: Schedule,
+        thresholds: Thresholds,
+        timezone_name: str,
+    ) -> Window:
+        """Apply settings without inventing another usage observation or alert."""
+        zone = ZoneInfo(timezone_name)
+        with self.connection:
+            window = self._set_pacing(self.window(window_id), schedule, timezone_name)
+            observations = self.observations(window_id)
+            if observations:
+                latest = observations[-1]
+                evaluation = evaluate(
+                    latest, latest.observed_at, window.start, schedule, thresholds, zone
+                )
+                self._update_notification(
+                    window.account_key, window.id, evaluation, True
+                )
+            return window
+
+    def _set_pacing(
+        self, window: Window, schedule: Schedule, timezone_name: str
+    ) -> Window:
+        self.connection.execute(
+            "UPDATE windows SET start_minutes=?,end_minutes=?,usage_mode=?,timezone=? WHERE id=?",
+            (
+                schedule.start_minutes,
+                schedule.end_minutes,
+                schedule.mode.value,
+                timezone_name,
+                window.id,
+            ),
+        )
+        return replace(window, schedule=schedule, timezone_name=timezone_name)
 
     def observations(self, window_id: int) -> list[Observation]:
         window = self.window(window_id)
@@ -233,7 +273,9 @@ class HistoryStore:
             _datetime(row["start_at"]),
             _datetime(row["end_at"]),
             row["timezone"],
-            Schedule(row["start_minutes"], row["end_minutes"]),
+            Schedule(
+                row["start_minutes"], row["end_minutes"], UsageMode(row["usage_mode"])
+            ),
             UsageMetric(row["metric"]),
         )
 

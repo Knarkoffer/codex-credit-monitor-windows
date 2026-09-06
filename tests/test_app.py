@@ -1,11 +1,18 @@
 from unittest import TestCase
-from unittest.mock import patch
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
 
 from codex_credit_monitor_windows.app import (
     WINDOWS_APP_USER_MODEL_ID,
     MonitorApplication,
     _configure_windows_app_identity,
 )
+from codex_credit_monitor_windows.domain import Observation, Schedule, UsageMode
+from codex_credit_monitor_windows.settings import Settings, SettingsStore
+from codex_credit_monitor_windows.storage import HistoryStore
 
 
 class FakeShell32:
@@ -111,3 +118,68 @@ class MinimizeToTrayTests(TestCase):
         self.assertEqual(application.root.state(), "normal")
         self.assertTrue(application.root.lifted)
         self.assertTrue(application.root.focused)
+
+
+class UsageModeTests(TestCase):
+    def test_saving_mode_updates_display_and_current_graph_without_refresh(self):
+        with TemporaryDirectory() as directory:
+            app = MonitorApplication.__new__(MonitorApplication)
+            app.settings_store = SettingsStore(Path(directory) / "settings.json")
+            app.store = HistoryStore(Path(directory) / "history.sqlite")
+            self.addCleanup(app.store.close)
+            app.settings = Settings(schedule=Schedule(), timezone_name="UTC")
+            start = datetime.now(timezone.utc) - timedelta(days=1)
+            app.result = app.store.commit(
+                Observation(
+                    "u",
+                    "w",
+                    Decimal(100),
+                    Decimal(25),
+                    start + timedelta(days=7),
+                    datetime.now(timezone.utc),
+                    start,
+                ),
+                app.settings.schedule,
+                app.settings.thresholds,
+                "UTC",
+            )
+            window_id = app.result.window.id
+            app.selected_window = window_id
+            app.graph = Mock()
+            app.window_box = {}
+            app.window_choice = Mock()
+            app.values = {
+                key: Mock()
+                for key in ("spent", "left", "working", "pace", "reset", "updated")
+            }
+            app.labels = {key: Mock() for key in ("spent", "left", "working")}
+            app.tray = Mock()
+            app.status = Mock()
+            app.message = Mock()
+            app.last_error = None
+            personal = Settings(
+                schedule=Schedule(mode=UsageMode.PERSONAL), timezone_name="UTC"
+            )
+
+            app._apply_settings(personal)
+
+            self.assertEqual(app.settings_store.load(), personal)
+            self.assertEqual(app.result.window.schedule.mode, UsageMode.PERSONAL)
+            app.labels["working"].set.assert_called_with("Calendar time (Personal)")
+            graph_window, observations = app.graph.update.call_args.args
+            self.assertEqual(graph_window.schedule.mode, UsageMode.PERSONAL)
+            self.assertEqual(len(observations), 1)
+            self.assertEqual(app.selected_window, window_id)
+
+    def test_settings_can_be_saved_before_first_successful_refresh(self):
+        app = MonitorApplication.__new__(MonitorApplication)
+        app.settings_store = Mock()
+        app.result = None
+        app._refresh_display = Mock()
+        settings = Settings()
+
+        app._apply_settings(settings)
+
+        app.settings_store.save.assert_called_once_with(settings)
+        self.assertEqual(app.settings, settings)
+        app._refresh_display.assert_called_once_with()
