@@ -26,6 +26,7 @@ libraries:
     - decimal:InvalidOperation
     - decimal:ROUND_HALF_UP
     - enum:Enum
+    - importlib.metadata
     - json
     - os
     - pathlib:Path

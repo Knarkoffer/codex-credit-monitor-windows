@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codex-credit-monitor-windows"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Native Windows desktop monitor for Codex plan usage and credit allocation"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -27,6 +27,9 @@ include = ["codex_credit_monitor_windows*"]
 
 [tool.setuptools.package-data]
 codex_credit_monitor_windows = ["assets/*.png"]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
 
 [tool.black]
 target-version = ["py312"]

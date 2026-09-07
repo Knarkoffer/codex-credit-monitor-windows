@@ -19,6 +19,7 @@ from .single_instance import SingleInstance
 from .storage import CommitResult, HistoryStore
 from .tray import TrayController, create_icon_image
 from .usage import UsageError, fetch_usage, read_credentials
+from .version import VERSION_LABEL
 from .wsl import distributions
 
 
@@ -181,8 +182,11 @@ class MonitorApplication:
         ttk.Button(actions, text="Delete history", command=self.delete_history).grid(
             row=0, column=1
         )
+        ttk.Label(actions, text=VERSION_LABEL, foreground="#777777").grid(
+            row=0, column=2, sticky="e", padx=12
+        )
         ttk.Button(actions, text="Quit", command=self.close).grid(
-            row=0, column=2, sticky="e"
+            row=0, column=3, sticky="e"
         )
         actions.columnconfigure(2, weight=1)
 

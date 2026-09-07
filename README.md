@@ -58,6 +58,11 @@ button in the notification area.
 Only one monitor can run at a time. Starting it again restores and focuses the
 existing monitor instead of opening another copy.
 
+The current application version appears at the bottom of the monitor. The
+launcher compares the installed version with [`VERSION`](VERSION) and updates
+the private environment from the local project folder when they differ. See
+[`CHANGELOG.md`](CHANGELOG.md) for the changes in each version.
+
 ### Manual setup and start
 
 If you prefer PowerShell, or need to see installation errors, run these commands

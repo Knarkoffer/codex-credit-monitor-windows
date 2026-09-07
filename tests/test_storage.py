@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import ExitStack, closing
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -126,10 +127,10 @@ class StorageTests(TestCase):
             store.close()
 
     def test_mode_switch_preserves_observations_and_resets_alert_baseline(self):
-        with TemporaryDirectory() as directory:
+        with TemporaryDirectory() as directory, ExitStack() as resources:
             path = Path(directory) / "history.sqlite"
             store = HistoryStore(path)
-            self.addCleanup(store.close)
+            resources.callback(store.close)
             start = datetime(2025, 1, 10, 8, tzinfo=timezone.utc)
             at = start + timedelta(hours=9)
             end = start + timedelta(days=3, hours=9)
@@ -142,7 +143,7 @@ class StorageTests(TestCase):
             )
             self.assertEqual(len(store.observations(window.id)), 1)
             self.assertEqual(window.timezone_name, "Europe/Stockholm")
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 self.assertEqual(
                     connection.execute("SELECT usage_mode FROM windows").fetchone()[0],
                     "personal",
@@ -171,14 +172,14 @@ class StorageTests(TestCase):
                     self.assertEqual(result.notify, notify)
             self.assertEqual(result.evaluation.state, PaceState.CRITICAL)
             restored = HistoryStore(path)
-            self.addCleanup(restored.close)
+            resources.callback(restored.close)
             self.assertEqual(restored.window(window.id).schedule, personal)
             self.assertEqual(len(restored.observations(window.id)), 4)
 
     def test_mode_change_on_refresh_does_not_trigger_an_alert(self):
-        with TemporaryDirectory() as directory:
+        with TemporaryDirectory() as directory, ExitStack() as resources:
             store = HistoryStore(Path(directory) / "history.sqlite")
-            self.addCleanup(store.close)
+            resources.callback(store.close)
             start = datetime(2025, 1, 10, 8, tzinfo=timezone.utc)
             at = start + timedelta(hours=9)
             end = start + timedelta(days=3, hours=9)
@@ -191,9 +192,9 @@ class StorageTests(TestCase):
             self.assertFalse(result.notify)
 
     def test_completed_windows_keep_their_mode(self):
-        with TemporaryDirectory() as directory:
+        with TemporaryDirectory() as directory, ExitStack() as resources:
             store = HistoryStore(Path(directory) / "history.sqlite")
-            self.addCleanup(store.close)
+            resources.callback(store.close)
             start = datetime(2025, 1, 6, tzinfo=timezone.utc)
             end = start + timedelta(days=7)
             old = store.commit(
