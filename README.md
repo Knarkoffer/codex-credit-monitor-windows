@@ -83,8 +83,7 @@ Select **Settings** in the monitor after it opens.
   usage pace evenly across the full reset period, including evenings and
   weekends, with no working hours to configure. Work counts Monday through
   Friday within your chosen working hours.
-- In Work mode, set your working day. The start and end values are minutes
-  after midnight: `480` is 08:00 and `1020` is 17:00.
+- In Work mode, choose when your working day starts and ends.
 - If you have several WSL distributions, choose the one where you ran
   `codex login`. Leave it blank to use Windows' default WSL distribution.
 - Enable notifications if you want Windows to alert you when your usage is

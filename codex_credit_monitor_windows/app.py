@@ -27,6 +27,35 @@ STALE_SECONDS = 30 * 60
 WINDOWS_APP_USER_MODEL_ID = "CodexCreditMonitor.Windows"
 
 
+def _format_clock_time(minutes: int) -> str:
+    if not 0 <= minutes <= 24 * 60:
+        raise ValueError("Time must remain within one day.")
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _parse_clock_time(value: str, *, allow_day_end: bool = False) -> int:
+    try:
+        hour_text, minute_text = value.split(":", maxsplit=1)
+        hour, minute = int(hour_text), int(minute_text)
+    except (AttributeError, TypeError, ValueError) as error:
+        raise ValueError("Choose a valid time.") from error
+    if not 0 <= minute < 60 or not 0 <= hour <= 24:
+        raise ValueError("Choose a valid time.")
+    if hour == 24 and (minute != 0 or not allow_day_end):
+        raise ValueError("Choose a valid time.")
+    return hour * 60 + minute
+
+
+def _clock_time_choices(
+    current: int, *, allow_day_end: bool = False
+) -> tuple[str, ...]:
+    first = 15 if allow_day_end else 0
+    stop = 24 * 60 + (15 if allow_day_end else 0)
+    choices = set(range(first, stop, 15))
+    choices.add(current)
+    return tuple(_format_clock_time(minutes) for minutes in sorted(choices))
+
+
 def _configure_windows_app_identity(shell32=None) -> None:
     """Give this Python-hosted app its own Windows taskbar identity."""
     if os.name != "nt":
@@ -410,8 +439,12 @@ class MonitorApplication:
         )
         fields = {
             "mode": tk.StringVar(value=self.settings.schedule.mode.value.title()),
-            "start": tk.StringVar(value=str(self.settings.schedule.start_minutes)),
-            "end": tk.StringVar(value=str(self.settings.schedule.end_minutes)),
+            "start": tk.StringVar(
+                value=_format_clock_time(self.settings.schedule.start_minutes)
+            ),
+            "end": tk.StringVar(
+                value=_format_clock_time(self.settings.schedule.end_minutes)
+            ),
             "tolerance": tk.StringVar(value=str(self.settings.thresholds.tolerance)),
             "base": tk.StringVar(value=str(self.settings.thresholds.critical_base)),
             "growth": tk.StringVar(value=str(self.settings.thresholds.critical_growth)),
@@ -437,7 +470,7 @@ class MonitorApplication:
             row=1, column=0, columnspan=2, padx=16, pady=(0, 8), sticky="w"
         )
         labels = (
-            ("Workday start (minutes after midnight)", "start"),
+            ("Workday start", "start"),
             ("Workday end", "end"),
             ("On-pace tolerance", "tolerance"),
             ("Critical base", "base"),
@@ -449,7 +482,20 @@ class MonitorApplication:
         for row, (label, key) in enumerate(labels, start=2):
             label_widget = ttk.Label(dialog, text=label)
             label_widget.grid(row=row, column=0, padx=16, pady=5, sticky="w")
-            if key == "distro" and installed_distros:
+            if key in ("start", "end"):
+                entry = ttk.Combobox(
+                    dialog,
+                    textvariable=fields[key],
+                    values=_clock_time_choices(
+                        getattr(self.settings.schedule, f"{key}_minutes"),
+                        allow_day_end=key == "end",
+                    ),
+                    state="readonly",
+                    width=21,
+                )
+                entry.grid(row=row, column=1, padx=16, pady=5)
+                work_widgets.extend((label_widget, entry))
+            elif key == "distro" and installed_distros:
                 ttk.Combobox(
                     dialog,
                     textvariable=fields[key],
@@ -460,8 +506,6 @@ class MonitorApplication:
             else:
                 entry = ttk.Entry(dialog, textvariable=fields[key], width=24)
                 entry.grid(row=row, column=1, padx=16, pady=5)
-                if key in ("start", "end"):
-                    work_widgets.extend((label_widget, entry))
 
         def update_mode(_event=None) -> None:
             personal = fields["mode"].get() == "Personal"
@@ -489,7 +533,9 @@ class MonitorApplication:
                     replace(self.settings.schedule, mode=mode)
                     if mode is UsageMode.PERSONAL
                     else Schedule(
-                        int(fields["start"].get()), int(fields["end"].get()), mode
+                        _parse_clock_time(fields["start"].get()),
+                        _parse_clock_time(fields["end"].get(), allow_day_end=True),
+                        mode,
                     )
                 )
                 settings = Settings(
