@@ -8,7 +8,10 @@ from unittest.mock import Mock, patch
 from codex_credit_monitor_windows.app import (
     WINDOWS_APP_USER_MODEL_ID,
     MonitorApplication,
+    _clock_time_choices,
     _configure_windows_app_identity,
+    _format_clock_time,
+    _parse_clock_time,
 )
 from codex_credit_monitor_windows.domain import Observation, Schedule, UsageMode
 from codex_credit_monitor_windows.settings import Settings, SettingsStore
@@ -39,6 +42,23 @@ class WindowsIdentityTests(TestCase):
             _configure_windows_app_identity(shell32)
 
         self.assertEqual(shell32.app_ids, [])
+
+
+class ClockTimeTests(TestCase):
+    def test_clock_times_convert_to_and_from_stored_minutes(self):
+        self.assertEqual(_format_clock_time(8 * 60), "08:00")
+        self.assertEqual(_parse_clock_time("17:30"), 17 * 60 + 30)
+        self.assertEqual(_parse_clock_time("24:00", allow_day_end=True), 24 * 60)
+
+    def test_start_time_rejects_end_of_day_value(self):
+        with self.assertRaisesRegex(ValueError, "valid time"):
+            _parse_clock_time("24:00")
+
+    def test_choices_keep_an_existing_time_outside_the_fifteen_minute_steps(self):
+        choices = _clock_time_choices(8 * 60 + 7)
+
+        self.assertIn("08:07", choices)
+        self.assertIn("08:15", choices)
 
 
 class FakeRoot:
