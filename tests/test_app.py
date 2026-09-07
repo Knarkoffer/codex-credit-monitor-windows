@@ -1,4 +1,5 @@
 from unittest import TestCase
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -142,11 +143,11 @@ class MinimizeToTrayTests(TestCase):
 
 class UsageModeTests(TestCase):
     def test_saving_mode_updates_display_and_current_graph_without_refresh(self):
-        with TemporaryDirectory() as directory:
+        with TemporaryDirectory() as directory, ExitStack() as resources:
             app = MonitorApplication.__new__(MonitorApplication)
             app.settings_store = SettingsStore(Path(directory) / "settings.json")
             app.store = HistoryStore(Path(directory) / "history.sqlite")
-            self.addCleanup(app.store.close)
+            resources.callback(app.store.close)
             app.settings = Settings(schedule=Schedule(), timezone_name="UTC")
             start = datetime.now(timezone.utc) - timedelta(days=1)
             app.result = app.store.commit(

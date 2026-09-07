@@ -37,6 +37,23 @@ if errorlevel 1 (
     goto :error
 )
 
+set "CCM_SOURCE_VERSION="
+set /p "CCM_SOURCE_VERSION="<"VERSION"
+if not defined CCM_SOURCE_VERSION (
+    set "CCM_ERROR_MESSAGE=The monitor's VERSION file is missing or empty. Download a complete copy of the project and try again."
+    goto :error
+)
+
+"%PYTHON%" -c "from importlib.metadata import version; import sys; raise SystemExit(version('codex-credit-monitor-windows') != sys.argv[1])" "!CCM_SOURCE_VERSION!" >nul 2>&1
+if errorlevel 1 (
+    echo Updating Codex Credit Monitor to version !CCM_SOURCE_VERSION!...
+    "%PYTHON%" -m pip install --upgrade .
+    if errorlevel 1 (
+        set "CCM_ERROR_MESSAGE=The monitor could not update to version !CCM_SOURCE_VERSION!. For details, run this CMD file with the --background argument."
+        goto :error
+    )
+)
+
 "%PYTHON%" -c "import PIL, pystray" >nul 2>&1
 if errorlevel 1 (
     echo Installing tray support...
