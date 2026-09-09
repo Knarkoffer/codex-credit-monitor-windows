@@ -3,6 +3,18 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.2.1 - 2026-09-09
+
+Added by: Knarkoffer
+
+### Fixed
+
+- Launch updated source without reinstalling the package when runtime dependencies
+  are present, avoiding startup failures caused by expired package-index credentials.
+- Check timezone data alongside tray dependencies before starting the app.
+- Clarify visible launcher diagnostics with `--diagnose`, while keeping
+  `--background` compatible with existing commands and the hidden launcher.
+
 ## 0.2.0 - 2026-09-07
 
 Added by: Knarkoffer

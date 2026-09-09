@@ -12,7 +12,7 @@ command = "cmd.exe /d /c " & Chr(34) & Chr(34) & scriptPath & Chr(34) & " --back
 exitCode = shell.Run(command, 0, True)
 
 If exitCode <> 0 Then
-    errorMessage = "Codex Credit Monitor could not start. Start the CMD launcher from Command Prompt to see the full error."
+    errorMessage = "Codex Credit Monitor could not start. Run Launch Codex Credit Monitor.cmd --diagnose from Command Prompt to see the full error."
     If filesystem.FileExists(errorFile) Then
         Set errorText = filesystem.OpenTextFile(errorFile, 1)
         errorMessage = errorText.ReadAll

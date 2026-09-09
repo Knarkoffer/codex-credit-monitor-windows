@@ -59,8 +59,9 @@ Only one monitor can run at a time. Starting it again restores and focuses the
 existing monitor instead of opening another copy.
 
 The current application version appears at the bottom of the monitor. The
-launcher compares the installed version with [`VERSION`](VERSION) and updates
-the private environment from the local project folder when they differ. See
+launcher runs the current source from the local project folder, using
+[`VERSION`](VERSION) for the displayed version. Version changes do not require
+a package download; setup installs dependencies only when they are missing. See
 [`CHANGELOG.md`](CHANGELOG.md) for the changes in each version.
 
 ### Manual setup and start
@@ -135,8 +136,14 @@ setup, delete the `.venv` folder next to the launcher and try again. To see
 full setup errors, open Command Prompt in the project folder and run:
 
 ```cmd
-"Launch Codex Credit Monitor.cmd" --background
+"Launch Codex Credit Monitor.cmd" --diagnose
 ```
+
+`--diagnose` runs the launcher visibly and starts the monitor if setup succeeds.
+The older `--background` argument does the same thing and remains supported.
+If setup reports `401 Credentials not correct`, refresh your credentials for the
+configured Python package index, then retry. An existing environment with all
+runtime dependencies can start without accessing that index.
 
 **The monitor cannot find your Codex login**
 
