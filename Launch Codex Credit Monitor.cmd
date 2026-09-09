@@ -2,11 +2,14 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 rem Start this file by double-clicking it in Windows Explorer.
+rem --diagnose runs visibly; --background is retained for the VBS wrapper.
+if /i "%~1"=="--diagnose" goto :launch
 if /i not "%~1"=="--background" (
     start "" wscript.exe "%~dp0Launch Codex Credit Monitor.vbs"
     exit /b 0
 )
 
+:launch
 cd /d "%~dp0"
 set "PYTHON=.venv\Scripts\python.exe"
 
@@ -20,13 +23,13 @@ if not exist "%PYTHON%" (
 
     !PYTHON_COMMAND! -m venv .venv
     if errorlevel 1 (
-        set "CCM_ERROR_MESSAGE=Python was found, but it could not create the monitor's .venv folder. For details, run this CMD file with the --background argument."
+        set "CCM_ERROR_MESSAGE=Python was found, but it could not create the monitor's .venv folder. For details, run this CMD file with the --diagnose argument."
         goto :error
     )
 
     "%PYTHON%" -m pip install .
     if errorlevel 1 (
-        set "CCM_ERROR_MESSAGE=The monitor setup could not install its dependencies. For details, run this CMD file with the --background argument."
+        set "CCM_ERROR_MESSAGE=The monitor setup could not install its dependencies. For details, run this CMD file with the --diagnose argument."
         goto :error
     )
 )
@@ -44,29 +47,21 @@ if not defined CCM_SOURCE_VERSION (
     goto :error
 )
 
-"%PYTHON%" -c "from importlib.metadata import version; import sys; raise SystemExit(version('codex-credit-monitor-windows') != sys.argv[1])" "!CCM_SOURCE_VERSION!" >nul 2>&1
+rem The app runs from this source folder, so version changes do not require
+rem reinstalling the package or contacting a package index.
+"%PYTHON%" -c "import PIL, pystray, tzdata" >nul 2>&1
 if errorlevel 1 (
-    echo Updating Codex Credit Monitor to version !CCM_SOURCE_VERSION!...
-    "%PYTHON%" -m pip install --upgrade .
-    if errorlevel 1 (
-        set "CCM_ERROR_MESSAGE=The monitor could not update to version !CCM_SOURCE_VERSION!. For details, run this CMD file with the --background argument."
-        goto :error
-    )
-)
-
-"%PYTHON%" -c "import PIL, pystray" >nul 2>&1
-if errorlevel 1 (
-    echo Installing tray support...
+    echo Installing missing runtime dependencies...
     "%PYTHON%" -m pip install .
     if errorlevel 1 (
-        set "CCM_ERROR_MESSAGE=The monitor could not install its tray-support dependencies. For details, run this CMD file with the --background argument."
+        set "CCM_ERROR_MESSAGE=The monitor could not install its runtime dependencies. For details, run this CMD file with the --diagnose argument."
         goto :error
     )
 )
 
 "%PYTHON%" -m codex_credit_monitor_windows
 if errorlevel 1 (
-    set "CCM_ERROR_MESSAGE=The monitor stopped unexpectedly. For details, run this CMD file with the --background argument."
+    set "CCM_ERROR_MESSAGE=The monitor stopped unexpectedly. For details, run this CMD file with the --diagnose argument."
     goto :error
 )
 
@@ -92,7 +87,7 @@ if not errorlevel 1 set "PYTHON_COMMAND=python"
 exit /b 0
 
 :error
-if not defined CCM_ERROR_MESSAGE set "CCM_ERROR_MESSAGE=Codex Credit Monitor could not start. For details, run this CMD file with the --background argument."
+if not defined CCM_ERROR_MESSAGE set "CCM_ERROR_MESSAGE=Codex Credit Monitor could not start. For details, run this CMD file with the --diagnose argument."
 echo %CCM_ERROR_MESSAGE%
 if defined CCM_ERROR_FILE > "%CCM_ERROR_FILE%" echo %CCM_ERROR_MESSAGE%
 endlocal
