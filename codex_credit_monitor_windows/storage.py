@@ -93,10 +93,18 @@ class HistoryStore:
                 ),
             )
             window = self._current_window(observation.account_key)
+            # A changed reset or explicit start identifies a separate period,
+            # even when it arrives before the previous period was due to end.
+            # Keep the previous dates attached to their recorded observations.
             is_new = (
                 window is None
                 or observation.observed_at >= window.end
                 or observation.metric is not window.metric
+                or observation.reset_at != window.end
+                or (
+                    observation.window_start is not None
+                    and observation.window_start != window.start
+                )
             )
             if is_new:
                 if window:
@@ -127,21 +135,6 @@ class HistoryStore:
                     timezone_name,
                     schedule,
                     observation.metric,
-                )
-            elif observation.reset_at != window.end:
-                start = observation.window_start or window.start
-                self.connection.execute(
-                    "UPDATE windows SET start_at=?,end_at=? WHERE id=?",
-                    (_iso(start), _iso(observation.reset_at), window.id),
-                )
-                window = Window(
-                    window.id,
-                    window.account_key,
-                    start,
-                    observation.reset_at,
-                    window.timezone_name,
-                    window.schedule,
-                    window.metric,
                 )
             self.connection.execute(
                 "INSERT INTO observations(window_id,account_key,observed_at,limit_text,used_text) VALUES(?,?,?,?,?)",

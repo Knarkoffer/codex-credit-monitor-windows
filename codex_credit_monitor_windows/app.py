@@ -260,12 +260,17 @@ class MonitorApplication:
 
     def _commit_observation(self, observation) -> None:
         try:
+            follow_current = (
+                self.result is None or self.selected_window == self.result.window.id
+            )
             self.result = self.store.commit(
                 observation,
                 self.settings.schedule,
                 self.settings.thresholds,
                 _timezone_name(self.settings.timezone_name),
             )
+            if follow_current:
+                self.selected_window = self.result.window.id
             self.last_error = None
             self._reload_windows()
             if self.result.notify and self.settings.notifications_enabled:
