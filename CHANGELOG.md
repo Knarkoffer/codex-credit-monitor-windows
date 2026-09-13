@@ -3,6 +3,20 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.2.2 - 2026-09-13
+
+Added by: Knarkoffer
+
+### Fixed
+
+- Keep usage periods separate when their reported start or reset changes,
+  preserving the dates and readings of previous periods.
+- Exclude readings outside the selected period from the graph, including older
+  mixed history, to prevent false drops and points piled up at the graph edges.
+  Existing readings remain stored; deleting history is not required.
+- Keep the graph on the current period after a reset when it was already showing
+  current usage, while preserving explicitly selected historical periods.
+
 ## 0.2.1 - 2026-09-09
 
 Added by: Knarkoffer

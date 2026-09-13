@@ -54,7 +54,18 @@ class UsageGraph(tk.Canvas):
         self._draw_header(left)
         self._draw_horizontal_grid(left, top, plot_width, plot_height)
         window = self.window_data
-        if window is None or not self.observations or window.end <= window.start:
+        # Older history may contain readings whose original period dates were
+        # overwritten. Preserve them in storage, but never clamp them into view.
+        observations = (
+            [
+                item
+                for item in self.observations
+                if window.start <= item.observed_at < window.end
+            ]
+            if window is not None
+            else []
+        )
+        if window is None or not observations or window.end <= window.start:
             self.create_text(
                 left + plot_width / 2,
                 top + plot_height / 2,
@@ -66,8 +77,9 @@ class UsageGraph(tk.Canvas):
             return
 
         duration = (window.end - window.start).total_seconds()
-        latest_limit = self.observations[-1].limit
         zone = ZoneInfo(window.timezone_name)
+        actual_observations = daily_observations(observations, zone)
+        latest_limit = actual_observations[-1].limit
 
         def point(at: datetime, fraction: float) -> tuple[float, float]:
             x = left + plot_width * max(
@@ -91,7 +103,6 @@ class UsageGraph(tk.Canvas):
                 joinstyle="round",
             )
 
-        actual_observations = daily_observations(self.observations, zone)
         actual = [
             point(item.observed_at, float(item.used / latest_limit))
             for item in actual_observations

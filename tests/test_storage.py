@@ -126,6 +126,89 @@ class StorageTests(TestCase):
             self.assertEqual(restored.window_start, start)
             store.close()
 
+    def test_changed_period_boundaries_preserve_history_and_reset_alerts(self):
+        start = datetime(2025, 1, 6, tzinfo=timezone.utc)
+        end = start + timedelta(days=7)
+        cases = (
+            (
+                "early renewal",
+                UsageMetric.PLAN_USAGE,
+                start + timedelta(days=2),
+                end + timedelta(days=2),
+            ),
+            (
+                "earlier reset",
+                UsageMetric.PLAN_USAGE,
+                start - timedelta(days=1),
+                end - timedelta(days=1),
+            ),
+            (
+                "changed duration",
+                UsageMetric.PLAN_USAGE,
+                start + timedelta(days=1),
+                end,
+            ),
+            ("credit reset", UsageMetric.CREDITS, None, end + timedelta(days=2)),
+            ("scheduled reset", UsageMetric.PLAN_USAGE, end, end + timedelta(days=7)),
+        )
+        for name, metric, new_start, new_end in cases:
+            with (
+                self.subTest(name=name),
+                TemporaryDirectory() as directory,
+                ExitStack() as resources,
+            ):
+                path = Path(directory) / "history.sqlite"
+                store = HistoryStore(path)
+                resources.callback(store.close)
+                schedule = Schedule(mode=UsageMode.PERSONAL)
+                initial = Observation(
+                    "u",
+                    "w",
+                    Decimal(100),
+                    Decimal(10),
+                    end,
+                    start + timedelta(days=1),
+                    start if metric is UsageMetric.PLAN_USAGE else None,
+                    metric,
+                )
+                old = store.commit(initial, schedule, Thresholds(), "UTC")
+                old_readings = store.observations(old.window.id)
+                current = Observation(
+                    "u",
+                    "w",
+                    Decimal(100),
+                    Decimal(99),
+                    new_end,
+                    max(start + timedelta(days=2), new_start or start),
+                    new_start,
+                    metric,
+                )
+                new = store.commit(current, schedule, Thresholds(), "UTC")
+
+                self.assertNotEqual(new.window.id, old.window.id)
+                self.assertEqual(store.window(old.window.id), old.window)
+                self.assertEqual(store.observations(old.window.id), old_readings)
+                self.assertEqual(new.window.end, new_end)
+                if new_start is not None:
+                    self.assertEqual(new.window.start, new_start)
+                self.assertEqual(new.evaluation.state, PaceState.CRITICAL)
+                self.assertFalse(new.notify)
+                self.assertEqual(
+                    store.connection.execute(
+                        "SELECT completed FROM windows WHERE id=?", (old.window.id,)
+                    ).fetchone()[0],
+                    1,
+                )
+
+                repeated = store.commit(current, schedule, Thresholds(), "UTC")
+                self.assertEqual(repeated.window.id, new.window.id)
+                self.assertEqual(len(store.observations(new.window.id)), 2)
+                restored = HistoryStore(path)
+                resources.callback(restored.close)
+                self.assertEqual(restored.window(old.window.id), old.window)
+                self.assertEqual(restored.observations(old.window.id), old_readings)
+                self.assertEqual(len(restored.windows(initial.account_key)), 2)
+
     def test_mode_switch_preserves_observations_and_resets_alert_baseline(self):
         with TemporaryDirectory() as directory, ExitStack() as resources:
             path = Path(directory) / "history.sqlite"

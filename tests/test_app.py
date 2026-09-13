@@ -14,7 +14,12 @@ from codex_credit_monitor_windows.app import (
     _format_clock_time,
     _parse_clock_time,
 )
-from codex_credit_monitor_windows.domain import Observation, Schedule, UsageMode
+from codex_credit_monitor_windows.domain import (
+    Observation,
+    Schedule,
+    UsageMetric,
+    UsageMode,
+)
 from codex_credit_monitor_windows.settings import Settings, SettingsStore
 from codex_credit_monitor_windows.storage import HistoryStore
 
@@ -204,3 +209,69 @@ class UsageModeTests(TestCase):
         app.settings_store.save.assert_called_once_with(settings)
         self.assertEqual(app.settings, settings)
         app._refresh_display.assert_called_once_with()
+
+
+class WindowSelectionTests(TestCase):
+    def test_refresh_follows_current_period_but_preserves_a_historical_selection(self):
+        for selection in ("current", "historical", "initial"):
+            with (
+                self.subTest(selection=selection),
+                TemporaryDirectory() as directory,
+                ExitStack() as resources,
+            ):
+                app = MonitorApplication.__new__(MonitorApplication)
+                app.store = HistoryStore(Path(directory) / "history.sqlite")
+                resources.callback(app.store.close)
+                app.settings = Settings(timezone_name="UTC")
+                app.graph = Mock()
+                app.window_box = {}
+                app.window_choice = Mock()
+                app._finish_refresh = Mock()
+                app._notify_critical = Mock()
+                start = datetime(2025, 1, 6, tzinfo=timezone.utc)
+
+                def sample(period_start, at):
+                    return Observation(
+                        "u",
+                        "w",
+                        Decimal(100),
+                        Decimal(1),
+                        period_start + timedelta(days=7),
+                        at,
+                        period_start,
+                        UsageMetric.PLAN_USAGE,
+                    )
+
+                def commit(item):
+                    return app.store.commit(
+                        item, app.settings.schedule, app.settings.thresholds, "UTC"
+                    )
+
+                historical = commit(
+                    sample(start - timedelta(days=7), start - timedelta(days=6))
+                )
+                current = commit(sample(start, start + timedelta(days=1)))
+                app.result = current if selection != "initial" else None
+                app.selected_window = {
+                    "current": current.window.id,
+                    "historical": historical.window.id,
+                    "initial": None,
+                }[selection]
+                # An earlier reported reset means sorting by end date alone
+                # would select the previous period ahead of the current one.
+                incoming = sample(start - timedelta(days=1), start + timedelta(days=2))
+
+                app._commit_observation(incoming)
+
+                self.assertIsNone(app.last_error)
+                self.assertNotEqual(app.result.window.id, current.window.id)
+                expected_id = (
+                    historical.window.id
+                    if selection == "historical"
+                    else app.result.window.id
+                )
+                self.assertEqual(app.selected_window, expected_id)
+                plotted_window, readings = app.graph.update.call_args.args
+                self.assertEqual(plotted_window.id, expected_id)
+                self.assertEqual(len(readings), 1)
+                app._finish_refresh.assert_called_once_with(None)
