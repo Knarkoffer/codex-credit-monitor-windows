@@ -22,6 +22,7 @@ from .domain import (
     UsageMode,
     evaluate,
 )
+from .forecast import STALE_SECONDS, ForecastState, UsageForecast, estimate_usage
 from .graph import UsageGraph
 from .settings import Settings, SettingsStore
 from .single_instance import SingleInstance
@@ -33,7 +34,6 @@ from .wsl import distributions
 
 
 REFRESH_MILLISECONDS = 15 * 60 * 1000
-STALE_SECONDS = 30 * 60
 WINDOWS_APP_USER_MODEL_ID = "CodexCreditMonitor.Windows"
 AUTOMATIC_LOGIN_SOURCE = "Automatic (Windows first, then default WSL)"
 
@@ -85,6 +85,67 @@ def _format_in_timezone(value: datetime, timezone_name: str, pattern: str) -> st
     return value.astimezone(ZoneInfo(timezone_name)).strftime(pattern)
 
 
+def _format_forecast_date(value: datetime, timezone_name: str, at: datetime) -> str:
+    zone = ZoneInfo(timezone_name)
+    local = value.astimezone(zone)
+    if local.date() != at.astimezone(zone).date():
+        return f"{local:%A}, {local.day} {local:%B} at {local:%H:%M}"
+    seconds = (
+        value.astimezone(timezone.utc) - at.astimezone(timezone.utc)
+    ).total_seconds()
+    if seconds <= 0:
+        relative = "estimate passed"
+    elif seconds < 60:
+        relative = "in less than a minute"
+    else:
+        hours, minutes = divmod(round(seconds / 60), 60)
+        parts = []
+        for amount, unit in ((hours, "hour"), (minutes, "minute")):
+            if amount:
+                parts.append(f"{amount} {unit}{'s' if amount != 1 else ''}")
+        relative = "in " + " ".join(parts)
+    return f"Today at {local:%H:%M} ({relative})"
+
+
+def _forecast_message(
+    forecast: UsageForecast,
+    observation: Observation,
+    schedule: Schedule,
+    timezone_name: str,
+    at: datetime,
+) -> str:
+    allowance = (
+        "plan allowance" if observation.metric is UsageMetric.PLAN_USAGE else "credits"
+    )
+    if forecast.state is ForecastState.RUNS_OUT:
+        assert forecast.exhaustion_at is not None
+        if forecast.exhaustion_at <= at:
+            message = f"The recent trend suggests your {allowance} may already be exhausted. Refresh to check."
+        else:
+            when = _format_in_timezone(
+                forecast.exhaustion_at, timezone_name, "%A, %d %B %Y at %H:%M %Z"
+            )
+            message = f"If your recent usage trend continues, you'll run out of {allowance} around {when}."
+    else:
+        message = {
+            ForecastState.WAITING: "Waiting for enough history to estimate usage (at least 3 readings spanning 1 hour in your selected mode).",
+            ForecastState.STALE: "Estimate unavailable: usage data is at least 30 minutes old. Refresh to update it.",
+            ForecastState.RESET: "The usage period has ended. Refresh to estimate the new allowance.",
+            ForecastState.EXHAUSTED: f"You've used all of your {allowance}, according to the latest reading.",
+            ForecastState.FLAT: "No usage increase was measured in the recent readings; a run-out date cannot be estimated yet.",
+            ForecastState.LASTS_UNTIL_RESET: f"If your recent usage trend continues, your {allowance} should last until the reset.",
+        }[forecast.state]
+    if forecast.sample_count:
+        mode = "working" if schedule.mode is UsageMode.WORK else "calendar"
+        message += (
+            f"\nBased on {forecast.sample_count} readings over "
+            f"{forecast.elapsed_seconds / 3600:.1f} {mode} hours."
+        )
+        if schedule.mode is UsageMode.WORK:
+            message += " Assumes future usage stays within your weekday working hours."
+    return message
+
+
 def _configure_windows_app_identity(shell32=None) -> None:
     """Give this Python-hosted app its own Windows taskbar identity."""
     if os.name != "nt":
@@ -99,6 +160,67 @@ def _configure_windows_app_identity(shell32=None) -> None:
         # Older/non-standard Windows environments can still use the app; only
         # taskbar grouping and icon selection fall back to Python's defaults.
         pass
+
+
+class _HoverTooltip:
+    """A delayed, non-focus-stealing explanation for a details row."""
+
+    def __init__(self, row: ttk.Frame) -> None:
+        self.row = row
+        self.text = tk.StringVar(master=row)
+        self.pending: str | None = None
+        self.popup: tk.Toplevel | None = None
+        for widget in (row, *row.winfo_children()):
+            widget.bind("<Enter>", self._schedule, add="+")
+            widget.bind("<Leave>", self.hide, add="+")
+            widget.bind("<ButtonPress>", self.hide, add="+")
+        row.bind("<Unmap>", self.hide, add="+")
+        row.bind("<Destroy>", self.hide, add="+")
+
+    def set_text(self, text: str) -> None:
+        self.text.set(text)
+        if not text:
+            self.hide()
+
+    def _schedule(self, _event=None) -> None:
+        self.hide()
+        if self.text.get():
+            self.pending = self.row.after(400, self._show)
+
+    def _show(self) -> None:
+        self.pending = None
+        if not self.text.get() or not self.row.winfo_ismapped():
+            return
+        popup = self.popup = tk.Toplevel(self.row)
+        popup.withdraw()
+        popup.overrideredirect(True)
+        popup.attributes("-topmost", True)
+        ttk.Label(
+            popup,
+            textvariable=self.text,
+            wraplength=420,
+            padding=10,
+            relief="solid",
+            borderwidth=1,
+        ).pack()
+        popup.update_idletasks()
+        x = min(
+            self.row.winfo_rootx(),
+            self.row.winfo_screenwidth() - popup.winfo_reqwidth(),
+        )
+        y = self.row.winfo_rooty() + self.row.winfo_height() + 4
+        if y + popup.winfo_reqheight() > self.row.winfo_screenheight():
+            y = self.row.winfo_rooty() - popup.winfo_reqheight() - 4
+        popup.geometry(f"+{max(0, x)}+{max(0, y)}")
+        popup.deiconify()
+
+    def hide(self, _event=None) -> None:
+        if self.pending is not None:
+            self.row.after_cancel(self.pending)
+            self.pending = None
+        if self.popup is not None:
+            self.popup.destroy()
+            self.popup = None
 
 
 class MonitorApplication:
@@ -140,6 +262,7 @@ class MonitorApplication:
         }
         self.status = tk.StringVar(value="Usage unavailable")
         self.message = tk.StringVar(value="Waiting for the first successful refresh.")
+        self.forecast = tk.StringVar()
         self.window_choice = tk.StringVar()
         self.window_labels: dict[str, int] = {}
         self._build_ui()
@@ -189,6 +312,17 @@ class MonitorApplication:
             ttk.Label(details, textvariable=self.values[key]).grid(
                 row=row, column=1, sticky="e", pady=2
             )
+        self.forecast_row = ttk.Frame(details)
+        self.forecast_row.grid(row=6, column=0, columnspan=2, sticky="ew", pady=2)
+        self.forecast_row.columnconfigure(1, weight=1)
+        ttk.Label(self.forecast_row, text="Expiry forecast", foreground="#b00020").grid(
+            row=0, column=0, sticky="w", padx=(0, 24)
+        )
+        ttk.Label(
+            self.forecast_row, textvariable=self.forecast, foreground="#b00020"
+        ).grid(row=0, column=1, sticky="e")
+        self.forecast_tooltip = _HoverTooltip(self.forecast_row)
+        self.forecast_row.grid_remove()
         ttk.Label(
             outer, textvariable=self.message, wraplength=570, foreground="#9b3f00"
         ).grid(row=2, column=0, sticky="w", pady=(4, 10))
@@ -372,6 +506,7 @@ class MonitorApplication:
             self.message.set(
                 self.last_error or "Waiting for the first successful refresh."
             )
+            self._hide_forecast()
             return
         observation = self.result.observation
         spent = observation.used / observation.limit * Decimal(100)
@@ -422,6 +557,33 @@ class MonitorApplication:
             else []
         ) + ([self.last_error] if self.last_error else [])
         self.message.set(" ".join(messages))
+        now = datetime.now(timezone.utc)
+        window = self.result.window
+        forecast = estimate_usage(
+            self.store.observations(window.id),
+            window.start,
+            window.schedule,
+            ZoneInfo(window.timezone_name),
+            now,
+        )
+        if forecast.state is not ForecastState.RUNS_OUT:
+            self._hide_forecast()
+            return
+        assert forecast.exhaustion_at is not None
+        self.forecast.set(
+            _format_forecast_date(forecast.exhaustion_at, window.timezone_name, now)
+        )
+        self.forecast_tooltip.set_text(
+            _forecast_message(
+                forecast, observation, window.schedule, window.timezone_name, now
+            )
+        )
+        self.forecast_row.grid()
+
+    def _hide_forecast(self) -> None:
+        self.forecast.set("")
+        self.forecast_tooltip.set_text("")
+        self.forecast_row.grid_remove()
 
     def _reload_windows(self) -> None:
         assert self.result is not None
@@ -472,6 +634,7 @@ class MonitorApplication:
             self.graph.clear()
             self.window_box["values"] = []
             self.window_choice.set("")
+            self._refresh_display()
 
     def _apply_settings(self, settings: Settings) -> None:
         self.settings_store.save(settings)

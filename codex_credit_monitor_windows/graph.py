@@ -48,7 +48,7 @@ class UsageGraph(tk.Canvas):
 
     def draw(self) -> None:
         self.delete("all")
-        width, height = max(self.winfo_width(), 520), max(self.winfo_height(), 300)
+        width, height = max(self.winfo_width(), 520), max(self.winfo_height(), 150)
         left, right, top, bottom = 54, 18, 42, 34
         plot_width, plot_height = width - left - right, height - top - bottom
         self._draw_header(left)

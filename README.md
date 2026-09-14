@@ -117,6 +117,29 @@ The monitor prefers a native Windows Codex login at
 `%USERPROFILE%\.codex\auth.json`. Otherwise, it reads the login from the selected
 WSL distribution. It never changes either login.
 
+## Usage forecast
+
+A red **Expiry forecast** row appears below **Updated** only when your recent
+usage trend predicts running out of credits or plan allowance before the next
+reset. Dates use the period's configured time zone, for example
+"Monday, 14 September at 19:00", or "Today at 19:00 (in 4 hours)" for today.
+Hover anywhere over the row for the full explanation and the number of readings
+and hours behind the estimate. This always refers to the current period, even
+when you view an older period in the graph.
+
+The estimate uses the average usage increase between actual readings from the
+last seven days of the current period. It needs at least three readings spanning
+one hour in your selected mode. Personal uses calendar hours; Work measures
+working hours and assumes future consumption happens during your configured
+weekday hours, skipping nights and weekends.
+
+This is an estimate, not a guarantee: changes in your tasks and usage can move
+the date. It does not calculate raw token counts. The monitor waits for new
+history after a usage counter decreases or the allocation changes, and withholds
+estimates when readings are at least 30 minutes old. The row also stays hidden
+when there is insufficient history, no measured increase, an already exhausted
+allowance, or an ended period. Predictions never extend beyond the next reset.
+
 ## Your data
 
 The monitor stores its settings and local usage history in

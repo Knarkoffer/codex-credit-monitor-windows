@@ -3,6 +3,22 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.3.0 - 2026-09-14
+
+Added by: Knarkoffer
+
+### Added
+
+- Show a red "Expiry forecast" row after Updated only when the recent usage
+  trend predicts running out before the next reset. Hover over the row for the
+  explanation, number of readings, and calendar or working hours used.
+- Format forecast dates as "Monday, 14 September at 19:00", or "Today at 19:00"
+  with a countdown for same-day estimates in the configured time zone.
+- Estimate from the recent average usage increase and selected Personal or Work
+  schedule; withhold warnings when history is insufficient, data is stale, usage
+  is flat, or the allowance is already exhausted. Restart the trend after usage
+  corrections or allocation changes.
+
 ## 0.2.3 - 2026-09-14
 
 Added by: Knarkoffer
