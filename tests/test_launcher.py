@@ -13,9 +13,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 class LauncherTests(TestCase):
     def test_source_update_starts_without_contacting_package_index(self):
         for argument in ("--diagnose", "--background"):
-            with self.subTest(argument=argument), tempfile.TemporaryDirectory(
-                prefix="monitor launcher "
-            ) as directory:
+            with (
+                self.subTest(argument=argument),
+                tempfile.TemporaryDirectory(prefix="monitor launcher ") as directory,
+            ):
                 root = Path(directory)
                 launcher = root / "Launch Codex Credit Monitor.cmd"
                 # Use the test environment without copying a Windows venv.
@@ -26,7 +27,7 @@ class LauncherTests(TestCase):
                 )
                 launcher.write_text(source)
                 (root / "VERSION").write_text("999.0.0\n")
-                for dependency in ("PIL", "pystray", "tzdata"):
+                for dependency in ("PIL", "pystray", "tzdata", "tzlocal"):
                     (root / f"{dependency}.py").write_text("")
                 # Fail locally if startup attempts any pip operation.
                 (root / "pip.py").write_text(

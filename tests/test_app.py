@@ -1,18 +1,26 @@
-from unittest import TestCase
+import queue
+import sys
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import ModuleType
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 from codex_credit_monitor_windows.app import (
+    AUTOMATIC_LOGIN_SOURCE,
     WINDOWS_APP_USER_MODEL_ID,
     MonitorApplication,
     _clock_time_choices,
     _configure_windows_app_identity,
+    _distro_from_login_source,
     _format_clock_time,
+    _format_in_timezone,
+    _login_source_choices,
     _parse_clock_time,
+    _timezone_name,
 )
 from codex_credit_monitor_windows.domain import (
     Observation,
@@ -65,6 +73,49 @@ class ClockTimeTests(TestCase):
 
         self.assertIn("08:07", choices)
         self.assertIn("08:15", choices)
+
+
+class LoginSourceTests(TestCase):
+    def test_automatic_source_round_trips_without_selecting_a_distribution(self):
+        choices = _login_source_choices(None, ["Ubuntu", "Debian"])
+
+        self.assertEqual(choices[0], AUTOMATIC_LOGIN_SOURCE)
+        self.assertIsNone(_distro_from_login_source(choices[0]))
+
+    def test_saved_unavailable_distribution_remains_selectable(self):
+        choices = _login_source_choices("Archived Linux", ["Ubuntu"])
+
+        self.assertEqual(choices, (AUTOMATIC_LOGIN_SOURCE, "Archived Linux", "Ubuntu"))
+        self.assertEqual(
+            _distro_from_login_source(" Archived Linux "), "Archived Linux"
+        )
+
+
+class TimezoneTests(TestCase):
+    def test_detected_iana_timezone_is_used_when_none_is_configured(self):
+        module = ModuleType("tzlocal")
+        module.get_localzone_name = Mock(return_value="America/New_York")
+
+        with patch.dict(sys.modules, {"tzlocal": module}):
+            self.assertEqual(_timezone_name(None), "America/New_York")
+
+    def test_invalid_local_timezone_detection_uses_the_legacy_fallback(self):
+        module = ModuleType("tzlocal")
+        module.get_localzone_name = Mock(side_effect=ValueError("misconfigured"))
+
+        with (
+            patch.dict(sys.modules, {"tzlocal": module}),
+            patch("codex_credit_monitor_windows.app.time.tzname", ("CET", "CEST")),
+        ):
+            self.assertEqual(_timezone_name(None), "Europe/Stockholm")
+
+    def test_timestamp_is_formatted_in_the_selected_timezone(self):
+        value = datetime(2025, 1, 1, 1, 30, tzinfo=timezone.utc)
+
+        self.assertEqual(
+            _format_in_timezone(value, "America/New_York", "%d %b %Y, %H:%M"),
+            "31 Dec 2024, 20:30",
+        )
 
 
 class FakeRoot:
@@ -209,6 +260,43 @@ class UsageModeTests(TestCase):
         app.settings_store.save.assert_called_once_with(settings)
         self.assertEqual(app.settings, settings)
         app._refresh_display.assert_called_once_with()
+
+
+class RefreshHandoffTests(TestCase):
+    def test_fetch_worker_queues_result_without_calling_tk(self):
+        app = MonitorApplication.__new__(MonitorApplication)
+        app.settings = Settings()
+        app.refresh_results = queue.SimpleQueue()
+        app.root = Mock()
+        observation = Mock()
+
+        with (
+            patch("codex_credit_monitor_windows.app.read_credentials"),
+            patch(
+                "codex_credit_monitor_windows.app.fetch_usage",
+                return_value=observation,
+            ),
+        ):
+            app._fetch_worker()
+
+        self.assertEqual(app.refresh_results.get_nowait(), (observation, None))
+        self.assertEqual(app.root.mock_calls, [])
+
+    def test_main_thread_poll_dispatches_queued_result(self):
+        app = MonitorApplication.__new__(MonitorApplication)
+        app.refresh_results = queue.SimpleQueue()
+        observation = Mock()
+        app.refresh_results.put((observation, None))
+        app.root = Mock()
+        app.closing = False
+        app._commit_observation = Mock()
+        app._finish_refresh = Mock()
+
+        app._poll_refresh_results()
+
+        app._commit_observation.assert_called_once_with(observation)
+        app._finish_refresh.assert_not_called()
+        self.assertEqual(app.root.after.call_args.args[0], 100)
 
 
 class WindowSelectionTests(TestCase):

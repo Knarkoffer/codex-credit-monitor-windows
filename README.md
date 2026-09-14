@@ -90,8 +90,9 @@ Select **Settings** in the monitor after it opens.
   weekends, with no working hours to configure. Work counts Monday through
   Friday within your chosen working hours.
 - In Work mode, choose when your working day starts and ends.
-- If you have several WSL distributions, choose the one where you ran
-  `codex login`. Leave it blank to use Windows' default WSL distribution.
+- Leave **Codex login source** set to **Automatic** to prefer a native Windows
+  login and otherwise use Windows' default WSL distribution. To use a different
+  WSL distribution, choose the one where you ran `codex login`.
 - Enable notifications if you want Windows to alert you when your usage is
   critically ahead of your selected pace.
 

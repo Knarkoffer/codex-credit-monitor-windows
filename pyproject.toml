@@ -13,6 +13,7 @@ dependencies = [
     "Pillow>=10.4",
     "pystray>=0.19.5",
     "tzdata>=2025.1; platform_system == 'Windows'",
+    "tzlocal>=5.3",
 ]
 
 [project.optional-dependencies]

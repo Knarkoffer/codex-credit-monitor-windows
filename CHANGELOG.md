@@ -3,6 +3,23 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.2.3 - 2026-09-14
+
+Added by: Knarkoffer
+
+### Changed
+
+- Detect the local IANA time zone on Windows and use the selected time zone
+  consistently for pace calculations, usage-window labels, graph dates, and
+  displayed timestamps.
+- Pass refresh results back to the Tk main thread through a queue so background
+  network work never calls Tk directly.
+
+### Fixed
+
+- Keep the automatic login source selected when settings are saved, rather than
+  silently pinning the monitor to the first installed WSL distribution.
+
 ## 0.2.2 - 2026-09-13
 
 Added by: Knarkoffer
