@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .domain import (
     Evaluation,
     Observation,
+    PaceState,
     Schedule,
     Thresholds,
     UsageMetric,
@@ -83,6 +84,19 @@ def _distro_from_login_source(value: str) -> str | None:
 
 def _format_in_timezone(value: datetime, timezone_name: str, pattern: str) -> str:
     return value.astimezone(ZoneInfo(timezone_name)).strftime(pattern)
+
+
+def _format_pace_status(state: PaceState, *, warning: bool = False) -> str:
+    if warning:
+        return f"{state.value}  ⚠️"
+    symbol = {
+        PaceState.BEHIND: "✅",
+        PaceState.ON_PACE: "🎯",
+        PaceState.AHEAD: "🟠",
+        PaceState.CRITICAL: "⚠️",
+        PaceState.UNAVAILABLE: "❔",
+    }[state]
+    return f"{state.value}  {symbol}"
 
 
 def _format_forecast_date(value: datetime, timezone_name: str, at: datetime) -> str:
@@ -260,7 +274,7 @@ class MonitorApplication:
             "left": tk.StringVar(value="Credits left"),
             "working": tk.StringVar(),
         }
-        self.status = tk.StringVar(value="Usage unavailable")
+        self.status = tk.StringVar(value="Usage unavailable  ❔")
         self.message = tk.StringVar(value="Waiting for the first successful refresh.")
         self.forecast = tk.StringVar()
         self.window_choice = tk.StringVar()
@@ -502,7 +516,9 @@ class MonitorApplication:
         )
         evaluation = self._current_evaluation()
         if self.result is None or evaluation is None:
-            self.status.set("Refreshing…" if self.refreshing else "Usage unavailable")
+            self.status.set(
+                "Refreshing…  ⏳" if self.refreshing else "Usage unavailable  ❔"
+            )
             self.message.set(
                 self.last_error or "Waiting for the first successful refresh."
             )
@@ -512,11 +528,19 @@ class MonitorApplication:
         spent = observation.used / observation.limit * Decimal(100)
         self.tray.set_utilization(spent)
         remaining_time = evaluation.remaining_time_percent
-        stale = datetime.now(timezone.utc) >= observation.observed_at + timedelta(
-            seconds=STALE_SECONDS
-        )
+        now = datetime.now(timezone.utc)
+        stale = now >= observation.observed_at + timedelta(seconds=STALE_SECONDS)
+        period_ended = now >= observation.reset_at
         self.status.set(
-            f"{evaluation.state.value}{'  ⚠' if stale or self.last_error else ''}"
+            "Period ended  ❔"
+            if period_ended
+            else (
+                "Allowance exhausted  ❌"
+                if observation.used >= observation.limit
+                else _format_pace_status(
+                    evaluation.state, warning=stale or bool(self.last_error)
+                )
+            )
         )
         if observation.metric is UsageMetric.PLAN_USAGE:
             self.labels["spent"].set("Plan usage")
@@ -556,8 +580,11 @@ class MonitorApplication:
             if stale
             else []
         ) + ([self.last_error] if self.last_error else [])
+        if period_ended:
+            messages.insert(
+                0, "The usage period has ended. Refresh to load the new allowance."
+            )
         self.message.set(" ".join(messages))
-        now = datetime.now(timezone.utc)
         window = self.result.window
         forecast = estimate_usage(
             self.store.observations(window.id),

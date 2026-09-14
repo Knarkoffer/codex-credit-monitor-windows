@@ -3,6 +3,22 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.4.0 - 2026-09-14
+
+Added by: Knarkoffer
+
+### Added
+
+- Show "Allowance exhausted" with a cross mark at 100% usage or above, regardless
+  of pace, and "Period ended" once the reset time passes until updated usage is
+  loaded.
+
+### Changed
+
+- Add distinct symbols to pace, loading, and unavailable status labels.
+  Stale data and refresh errors retain a single warning symbol instead of the
+  normal pace symbol.
+
 ## 0.3.0 - 2026-09-14
 
 Added by: Knarkoffer
