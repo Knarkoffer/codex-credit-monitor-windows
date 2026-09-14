@@ -20,6 +20,7 @@ from codex_credit_monitor_windows.app import (
     _format_clock_time,
     _format_forecast_date,
     _format_in_timezone,
+    _format_pace_status,
     _forecast_message,
     _login_source_choices,
     _parse_clock_time,
@@ -27,6 +28,7 @@ from codex_credit_monitor_windows.app import (
 )
 from codex_credit_monitor_windows.domain import (
     Observation,
+    PaceState,
     Schedule,
     UsageMetric,
     UsageMode,
@@ -300,6 +302,97 @@ class HoverTooltipTests(TestCase):
         with patch("codex_credit_monitor_windows.app.tk.Toplevel") as popup:
             self.tooltip._show()
         popup.assert_not_called()
+
+
+class PaceStatusTests(TestCase):
+    def test_each_pace_state_gets_its_agreed_symbol(self):
+        expected = {
+            PaceState.BEHIND: "Safe  ✅",
+            PaceState.ON_PACE: "On pace  🎯",
+            PaceState.AHEAD: "Ahead  🟠",
+            PaceState.CRITICAL: "Critically ahead  ⚠️",
+            PaceState.UNAVAILABLE: "Unavailable  ❔",
+        }
+        for state, label in expected.items():
+            with self.subTest(state=state):
+                self.assertEqual(_format_pace_status(state), label)
+
+    def test_stale_or_failed_refresh_keeps_one_warning_instead_of_a_checkmark(self):
+        for state in PaceState:
+            with self.subTest(state=state):
+                self.assertEqual(
+                    _format_pace_status(state, warning=True), f"{state.value}  ⚠️"
+                )
+
+    def test_exhaustion_overrides_pace_until_the_period_ends(self):
+        app = MonitorApplication.__new__(MonitorApplication)
+        app.settings = Settings(schedule=Schedule(mode=UsageMode.PERSONAL))
+        now = datetime(2026, 9, 14, 12, tzinfo=timezone.utc)
+        start, end = now - timedelta(days=7), now + timedelta(minutes=1)
+        app.values = {
+            key: Mock()
+            for key in ("spent", "left", "working", "pace", "reset", "updated")
+        }
+        app.labels = {key: Mock() for key in ("spent", "left", "working")}
+        app.tray = Mock()
+        app.status = Mock()
+        app.message = Mock()
+        app.last_error = None
+        app._hide_forecast = Mock()
+        app.store = Mock()
+        app.store.observations.return_value = []
+        app.result = Mock()
+        app.result.window = Mock(
+            start=start, schedule=app.settings.schedule, timezone_name="UTC"
+        )
+        with patch("codex_credit_monitor_windows.app.datetime") as clock:
+            for metric in UsageMetric:
+                for used in (99, 100, 101):
+                    with self.subTest(metric=metric, used=used):
+                        clock.now.return_value = now
+                        app.result.observation = Observation(
+                            "u",
+                            "w",
+                            Decimal(100),
+                            Decimal(used),
+                            end,
+                            now,
+                            start,
+                            metric,
+                        )
+                        app._refresh_display()
+                        # Near reset, pace alone says On pace even at 100%.
+                        app.status.set.assert_called_with(
+                            "On pace  🎯" if used < 100 else "Allowance exhausted  ❌"
+                        )
+                        clock.now.return_value = end
+                        app._refresh_display()
+                        app.status.set.assert_called_with("Period ended  ❔")
+                        self.assertIn("Refresh", app.message.set.call_args.args[0])
+            clock.now.return_value = now
+            app.result.observation = Observation(
+                "u",
+                "w",
+                Decimal(100),
+                Decimal(100),
+                end,
+                now - timedelta(hours=1),
+                start,
+            )
+            app.last_error = "Refresh failed."
+            app._refresh_display()
+            app.status.set.assert_called_with("Allowance exhausted  ❌")
+            self.assertIn("stale", app.message.set.call_args.args[0])
+            self.assertIn("Refresh failed", app.message.set.call_args.args[0])
+
+            app.result = None
+            for refreshing, label in (
+                (True, "Refreshing…  ⏳"),
+                (False, "Usage unavailable  ❔"),
+            ):
+                app.refreshing = refreshing
+                app._refresh_display()
+                app.status.set.assert_called_with(label)
 
 
 class ForecastDisplayTests(TestCase):

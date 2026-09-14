@@ -117,6 +117,17 @@ The monitor prefers a native Windows Codex login at
 `%USERPROFILE%\.codex\auth.json`. Otherwise, it reads the login from the selected
 WSL distribution. It never changes either login.
 
+## Usage status
+
+The header normally shows Safe, On pace, Ahead, or Critically ahead based on
+your usage relative to the selected schedule. At 100% usage or above,
+**Allowance exhausted** takes priority over pace. This refers to the monitored
+credits or plan allowance, not a raw token count.
+
+Once the reset time passes, **Period ended** replaces the previous status and
+asks you to refresh for the new allowance. Stale readings and refresh errors
+remain explained below the details; they do not confirm your current balance.
+
 ## Usage forecast
 
 A red **Expiry forecast** row appears below **Updated** only when your recent
