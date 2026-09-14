@@ -111,3 +111,22 @@ class GraphWindowTests(TestCase):
                 for call in self.graph.create_text.call_args_list
             )
         )
+
+    def test_date_labels_use_the_window_timezone(self):
+        window = replace(
+            self.graph.window_data,
+            timezone_name="America/New_York",
+        )
+
+        UsageGraph._draw_time_grid(
+            self.graph,
+            window,
+            lambda at, _fraction: ((at - window.start).total_seconds(), 0),
+            42,
+            224,
+        )
+
+        labels = [
+            call.kwargs.get("text") for call in self.graph.create_text.call_args_list
+        ]
+        self.assertIn("07 Jan", labels)

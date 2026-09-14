@@ -49,7 +49,7 @@ if not defined CCM_SOURCE_VERSION (
 
 rem The app runs from this source folder, so version changes do not require
 rem reinstalling the package or contacting a package index.
-"%PYTHON%" -c "import PIL, pystray, tzdata" >nul 2>&1
+"%PYTHON%" -c "import PIL, pystray, tzdata, tzlocal" >nul 2>&1
 if errorlevel 1 (
     echo Installing missing runtime dependencies...
     "%PYTHON%" -m pip install .

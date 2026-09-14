@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import queue
 import sqlite3
 import subprocess
 import threading
@@ -12,7 +13,15 @@ from decimal import Decimal
 from tkinter import messagebox, ttk
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .domain import Evaluation, Schedule, Thresholds, UsageMetric, UsageMode, evaluate
+from .domain import (
+    Evaluation,
+    Observation,
+    Schedule,
+    Thresholds,
+    UsageMetric,
+    UsageMode,
+    evaluate,
+)
 from .graph import UsageGraph
 from .settings import Settings, SettingsStore
 from .single_instance import SingleInstance
@@ -26,6 +35,7 @@ from .wsl import distributions
 REFRESH_MILLISECONDS = 15 * 60 * 1000
 STALE_SECONDS = 30 * 60
 WINDOWS_APP_USER_MODEL_ID = "CodexCreditMonitor.Windows"
+AUTOMATIC_LOGIN_SOURCE = "Automatic (Windows first, then default WSL)"
 
 
 def _format_clock_time(minutes: int) -> str:
@@ -55,6 +65,24 @@ def _clock_time_choices(
     choices = set(range(first, stop, 15))
     choices.add(current)
     return tuple(_format_clock_time(minutes) for minutes in sorted(choices))
+
+
+def _login_source_choices(
+    current_distro: str | None, installed_distros: list[str]
+) -> tuple[str, ...]:
+    distros = list(installed_distros)
+    if current_distro and current_distro not in distros:
+        distros.insert(0, current_distro)
+    return (AUTOMATIC_LOGIN_SOURCE, *distros)
+
+
+def _distro_from_login_source(value: str) -> str | None:
+    selected = value.strip()
+    return None if not selected or selected == AUTOMATIC_LOGIN_SOURCE else selected
+
+
+def _format_in_timezone(value: datetime, timezone_name: str, pattern: str) -> str:
+    return value.astimezone(ZoneInfo(timezone_name)).strftime(pattern)
 
 
 def _configure_windows_app_identity(shell32=None) -> None:
@@ -97,6 +125,9 @@ class MonitorApplication:
         self.last_error: str | None = None
         self.refreshing = False
         self.refresh_pending = False
+        self.refresh_results: queue.SimpleQueue[
+            tuple[Observation | None, str | None]
+        ] = queue.SimpleQueue()
         self.selected_window: int | None = None
         self.values: dict[str, tk.StringVar] = {
             key: tk.StringVar(value="—")
@@ -192,6 +223,7 @@ class MonitorApplication:
 
     def run(self) -> None:
         self.refresh()
+        self.root.after(100, self._poll_refresh_results)
         self.root.after(REFRESH_MILLISECONDS, self._scheduled_refresh)
         self.root.after(60_000, self._minute_tick)
         self.root.mainloop()
@@ -249,16 +281,29 @@ class MonitorApplication:
     def _fetch_worker(self) -> None:
         try:
             observation = fetch_usage(read_credentials(self.settings.wsl_distro))
-            self.root.after(0, self._commit_observation, observation)
+            self.refresh_results.put((observation, None))
         except Exception as error:
             message = (
                 str(error)
                 if isinstance(error, UsageError)
                 else "Usage refresh failed unexpectedly."
             )
-            self.root.after(0, self._finish_refresh, message)
+            self.refresh_results.put((None, message))
 
-    def _commit_observation(self, observation) -> None:
+    def _poll_refresh_results(self) -> None:
+        while True:
+            try:
+                observation, error = self.refresh_results.get_nowait()
+            except queue.Empty:
+                break
+            if observation is not None:
+                self._commit_observation(observation)
+            else:
+                self._finish_refresh(error)
+        if not self.closing:
+            self.root.after(100, self._poll_refresh_results)
+
+    def _commit_observation(self, observation: Observation) -> None:
         try:
             follow_current = (
                 self.result is None or self.selected_window == self.result.window.id
@@ -362,11 +407,14 @@ class MonitorApplication:
             if evaluation.guide_remaining_percent is not None
             else "Unavailable"
         )
+        timezone_name = self.result.window.timezone_name
         self.values["reset"].set(
-            observation.reset_at.astimezone().strftime("%d %b %Y, %H:%M")
+            _format_in_timezone(observation.reset_at, timezone_name, "%d %b %Y, %H:%M")
         )
         self.values["updated"].set(
-            observation.observed_at.astimezone().strftime("%d %b %Y, %H:%M")
+            _format_in_timezone(
+                observation.observed_at, timezone_name, "%d %b %Y, %H:%M"
+            )
         )
         messages = (
             ["Data is stale; pace is frozen at the 30-minute freshness boundary."]
@@ -384,7 +432,9 @@ class MonitorApplication:
             prefix = "Current · " if window.id == self.result.window.id else ""
             label = (
                 prefix
-                + f"{window.start.astimezone():%d %b %Y} – {window.end.astimezone():%d %b %Y}"
+                + _format_in_timezone(window.start, window.timezone_name, "%d %b %Y")
+                + " – "
+                + _format_in_timezone(window.end, window.timezone_name, "%d %b %Y")
             )
             choices.append(label)
             self.window_labels[label] = window.id
@@ -443,9 +493,7 @@ class MonitorApplication:
         dialog.transient(self.root)
         dialog.grab_set()
         installed_distros = distributions()
-        initial_distro = self.settings.wsl_distro or (
-            installed_distros[0] if installed_distros else ""
-        )
+        initial_distro = self.settings.wsl_distro or AUTOMATIC_LOGIN_SOURCE
         fields = {
             "mode": tk.StringVar(value=self.settings.schedule.mode.value.title()),
             "start": tk.StringVar(
@@ -484,7 +532,7 @@ class MonitorApplication:
             ("On-pace tolerance", "tolerance"),
             ("Critical base", "base"),
             ("Critical growth", "growth"),
-            ("WSL distribution (optional)", "distro"),
+            ("Codex login source", "distro"),
             ("Time zone (IANA, e.g. Europe/Stockholm)", "timezone"),
         )
         work_widgets = []
@@ -504,13 +552,14 @@ class MonitorApplication:
                 )
                 entry.grid(row=row, column=1, padx=16, pady=5)
                 work_widgets.extend((label_widget, entry))
-            elif key == "distro" and installed_distros:
+            elif key == "distro":
                 ttk.Combobox(
                     dialog,
                     textvariable=fields[key],
-                    values=installed_distros,
-                    state="readonly",
-                    width=21,
+                    values=_login_source_choices(
+                        self.settings.wsl_distro, installed_distros
+                    ),
+                    width=42,
                 ).grid(row=row, column=1, padx=16, pady=5)
             else:
                 entry = ttk.Entry(dialog, textvariable=fields[key], width=24)
@@ -555,7 +604,7 @@ class MonitorApplication:
                         Decimal(fields["growth"].get()),
                     ),
                     fields["notify"].get(),
-                    fields["distro"].get().strip() or None,
+                    _distro_from_login_source(fields["distro"].get()),
                     timezone_name,
                 )
                 self._apply_settings(settings)
@@ -606,6 +655,14 @@ def _timezone_name(configured: str | None) -> str:
             return override
         except ZoneInfoNotFoundError:
             pass
+    try:
+        from tzlocal import get_localzone_name
+
+        detected = get_localzone_name()
+        ZoneInfo(detected)
+        return detected
+    except (ImportError, OSError, ValueError, ZoneInfoNotFoundError):
+        pass
     name = time.tzname[0]
     return {
         "CET": "Europe/Stockholm",

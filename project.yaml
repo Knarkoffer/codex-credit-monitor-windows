@@ -51,6 +51,23 @@ libraries:
     - PIL:ImageDraw
     - PIL:ImageTk
     - pystray
+    - contextlib:closing
+    - contextlib:ExitStack
+    - ctypes
+    - ctypes:windll
+    - ctypes:wintypes
+    - dataclasses:replace
+    - importlib.metadata:PackageNotFoundError
+    - importlib.metadata:version
+    - importlib.resources:files
+    - queue
+    - re
+    - sys
+    - tomllib
+    - tzlocal:get_localzone_name
+    - unittest.mock:call
+    - unittest.mock:Mock
+    - unittest:skipUnless
 github:
   owner: Knarkoffer
   repo: codex-credit-monitor-windows

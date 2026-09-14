@@ -208,6 +208,7 @@ class UsageGraph(tk.Canvas):
         self, window: Window, point, top: int, plot_height: int
     ) -> None:
         duration = window.end - window.start
+        zone = ZoneInfo(window.timezone_name)
         for index in range(5):
             at = window.start + duration * index / 4
             x, _ = point(at, 0)
@@ -215,7 +216,7 @@ class UsageGraph(tk.Canvas):
             self.create_text(
                 x,
                 top + plot_height + 12,
-                text=at.astimezone().strftime("%d %b"),
+                text=at.astimezone(zone).strftime("%d %b"),
                 fill=MUTED,
                 anchor="n",
                 font=("Segoe UI", 9),
