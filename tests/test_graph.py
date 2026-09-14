@@ -130,3 +130,15 @@ class GraphWindowTests(TestCase):
             call.kwargs.get("text") for call in self.graph.create_text.call_args_list
         ]
         self.assertIn("07 Jan", labels)
+
+    def test_graph_fits_reduced_height_in_a_compact_window(self):
+        self.graph.winfo_height.return_value = 200
+        self.graph.observations = [observation(self.start, "10")]
+
+        UsageGraph.draw(self.graph)
+
+        # Leave room for the header and date labels inside the actual canvas.
+        self.assertEqual(self.graph._draw_time_grid.call_args.args[2:], (42, 124))
+        _, top, _, bottom = self.graph.create_rectangle.call_args.args
+        self.assertGreaterEqual(top, 42)
+        self.assertLess(bottom, 200 - 34)

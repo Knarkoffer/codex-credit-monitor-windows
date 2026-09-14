@@ -13,11 +13,14 @@ from codex_credit_monitor_windows.app import (
     AUTOMATIC_LOGIN_SOURCE,
     WINDOWS_APP_USER_MODEL_ID,
     MonitorApplication,
+    _HoverTooltip,
     _clock_time_choices,
     _configure_windows_app_identity,
     _distro_from_login_source,
     _format_clock_time,
+    _format_forecast_date,
     _format_in_timezone,
+    _forecast_message,
     _login_source_choices,
     _parse_clock_time,
     _timezone_name,
@@ -29,6 +32,7 @@ from codex_credit_monitor_windows.domain import (
     UsageMode,
 )
 from codex_credit_monitor_windows.settings import Settings, SettingsStore
+from codex_credit_monitor_windows.forecast import ForecastState, UsageForecast
 from codex_credit_monitor_windows.storage import HistoryStore
 
 
@@ -233,6 +237,9 @@ class UsageModeTests(TestCase):
             app.tray = Mock()
             app.status = Mock()
             app.message = Mock()
+            app.forecast = Mock()
+            app.forecast_row = Mock()
+            app.forecast_tooltip = Mock()
             app.last_error = None
             personal = Settings(
                 schedule=Schedule(mode=UsageMode.PERSONAL), timezone_name="UTC"
@@ -260,6 +267,185 @@ class UsageModeTests(TestCase):
         app.settings_store.save.assert_called_once_with(settings)
         self.assertEqual(app.settings, settings)
         app._refresh_display.assert_called_once_with()
+
+
+class HoverTooltipTests(TestCase):
+    def setUp(self):
+        self.tooltip = _HoverTooltip.__new__(_HoverTooltip)
+        self.tooltip.row = Mock()
+        self.tooltip.text = Mock()
+        self.tooltip.text.get.return_value = "Based on 16 readings."
+        self.tooltip.pending = None
+        self.tooltip.popup = None
+
+    def test_hover_is_delayed_and_leaving_cancels_it(self):
+        self.tooltip.row.after.return_value = "timer"
+        self.tooltip._schedule()
+        self.tooltip.row.after.assert_called_once_with(400, self.tooltip._show)
+        self.tooltip.hide()
+        self.tooltip.row.after_cancel.assert_called_once_with("timer")
+        self.assertIsNone(self.tooltip.pending)
+
+    def test_clearing_text_destroys_an_open_tooltip(self):
+        popup = self.tooltip.popup = Mock()
+        self.tooltip.set_text("")
+        self.tooltip.text.set.assert_called_once_with("")
+        popup.destroy.assert_called_once_with()
+        self.assertIsNone(self.tooltip.popup)
+        self.tooltip.hide()
+        popup.destroy.assert_called_once_with()
+
+    def test_delayed_callback_does_not_show_a_hidden_row(self):
+        self.tooltip.row.winfo_ismapped.return_value = False
+        with patch("codex_credit_monitor_windows.app.tk.Toplevel") as popup:
+            self.tooltip._show()
+        popup.assert_not_called()
+
+
+class ForecastDisplayTests(TestCase):
+    def test_forecast_dates_use_readable_dates_or_today_with_a_countdown(self):
+        now = datetime(2026, 9, 14, 13, tzinfo=timezone.utc)
+        cases = (
+            (timedelta(days=1, hours=4), "Tuesday, 15 September at 19:00"),
+            (timedelta(hours=4), "Today at 19:00 (in 4 hours)"),
+            (timedelta(hours=1, minutes=1), "Today at 16:01 (in 1 hour 1 minute)"),
+            (timedelta(minutes=20), "Today at 15:20 (in 20 minutes)"),
+            (timedelta(seconds=20), "Today at 15:00 (in less than a minute)"),
+            (timedelta(), "Today at 15:00 (estimate passed)"),
+            (timedelta(minutes=-1), "Today at 14:59 (estimate passed)"),
+        )
+        for offset, expected in cases:
+            with self.subTest(offset=offset):
+                self.assertEqual(
+                    _format_forecast_date(now + offset, "Europe/Stockholm", now),
+                    expected,
+                )
+
+    def test_today_uses_the_configured_timezone_not_the_utc_date(self):
+        now = datetime(2026, 9, 14, 23, tzinfo=timezone.utc)
+        self.assertEqual(
+            _format_forecast_date(now + timedelta(hours=2), "Europe/Stockholm", now),
+            "Today at 03:00 (in 2 hours)",
+        )
+        now = datetime(2026, 9, 14, 21, tzinfo=timezone.utc)
+        self.assertEqual(
+            _format_forecast_date(now + timedelta(hours=2), "Europe/Stockholm", now),
+            "Tuesday, 15 September at 01:00",
+        )
+
+    def test_countdown_measures_elapsed_time_across_the_dst_clock_change(self):
+        from zoneinfo import ZoneInfo
+
+        zone = ZoneInfo("Europe/Stockholm")
+        now = datetime(2026, 10, 25, 2, 30, tzinfo=zone, fold=0)
+        later = datetime(2026, 10, 25, 2, 30, tzinfo=zone, fold=1)
+        self.assertEqual(
+            _format_forecast_date(later, "Europe/Stockholm", now),
+            "Today at 02:30 (in 1 hour)",
+        )
+
+    def test_forecast_uses_current_history_even_when_graph_shows_an_old_period(self):
+        with TemporaryDirectory() as directory, ExitStack() as resources:
+            app = MonitorApplication.__new__(MonitorApplication)
+            app.store = HistoryStore(Path(directory) / "history.sqlite")
+            resources.callback(app.store.close)
+            app.settings = Settings(
+                schedule=Schedule(mode=UsageMode.PERSONAL),
+                timezone_name="Europe/Stockholm",
+            )
+            start = datetime(2025, 1, 6, 8, tzinfo=timezone.utc)
+            for offset in (-7, 0):
+                period_start = start + timedelta(days=offset)
+                for hour in range(3):
+                    app.result = app.store.commit(
+                        Observation(
+                            "u",
+                            "w",
+                            Decimal(100),
+                            Decimal(10 * hour),
+                            period_start + timedelta(days=7),
+                            period_start + timedelta(hours=hour),
+                            period_start,
+                            UsageMetric.PLAN_USAGE,
+                        ),
+                        app.settings.schedule,
+                        app.settings.thresholds,
+                        app.settings.timezone_name,
+                    )
+                if offset == -7:
+                    app.selected_window = app.result.window.id
+            app.values = {
+                key: Mock()
+                for key in ("spent", "left", "working", "pace", "reset", "updated")
+            }
+            app.labels = {key: Mock() for key in ("spent", "left", "working")}
+            app.tray = Mock()
+            app.status = Mock()
+            app.message = Mock()
+            app.forecast = Mock()
+            app.forecast_row = Mock()
+            app.forecast_tooltip = Mock()
+            app.last_error = None
+            with patch("codex_credit_monitor_windows.app.datetime") as clock:
+                clock.now.return_value = start + timedelta(hours=2)
+                app._refresh_display()
+                app.forecast.set.assert_called_with("Today at 19:00 (in 8 hours)")
+                app.forecast_row.grid.assert_called_once_with()
+                text = app.forecast_tooltip.set_text.call_args.args[0]
+                self.assertIn(
+                    "run out of plan allowance around Monday, 06 January 2025 at 19:00 CET",
+                    text,
+                )
+                self.assertIn("3 readings over 2.0 calendar hours", text)
+                self.assertNotEqual(app.selected_window, app.result.window.id)
+                # Minute ticks must withdraw a forecast when data goes stale.
+                clock.now.return_value += timedelta(minutes=30)
+                app._refresh_display()
+                app.forecast.set.assert_called_with("")
+                app.forecast_tooltip.set_text.assert_called_with("")
+                app.forecast_row.grid_remove.assert_called_once_with()
+
+                # Every non-warning state stays out of the details list.
+                clock.now.return_value = start + timedelta(hours=2)
+                for state in ForecastState:
+                    if state is ForecastState.RUNS_OUT:
+                        continue
+                    with (
+                        self.subTest(state=state),
+                        patch(
+                            "codex_credit_monitor_windows.app.estimate_usage",
+                            return_value=UsageForecast(state),
+                        ),
+                    ):
+                        app.forecast_row.reset_mock()
+                        app._refresh_display()
+                        app.forecast_row.grid.assert_not_called()
+                        app.forecast_row.grid_remove.assert_called_once_with()
+                        app.forecast_tooltip.set_text.assert_called_with("")
+
+                app.result = None
+                app.refreshing = False
+                app.forecast_row.reset_mock()
+                app._refresh_display()
+                app.forecast_row.grid_remove.assert_called_once_with()
+                app.forecast_tooltip.set_text.assert_called_with("")
+
+    def test_prediction_in_the_past_requests_a_refresh_instead_of_a_future_claim(self):
+        now = datetime(2025, 1, 6, 12, tzinfo=timezone.utc)
+        reading = Observation(
+            "u", "w", Decimal(100), Decimal(99), now + timedelta(days=1), now
+        )
+        text = _forecast_message(
+            UsageForecast(ForecastState.RUNS_OUT, now - timedelta(minutes=1), 3, 3600),
+            reading,
+            Schedule(),
+            "UTC",
+            now,
+        )
+        self.assertIn("may already be exhausted", text)
+        self.assertIn("Refresh", text)
+        self.assertIn("working hours", text)
+        self.assertNotIn("you'll run out", text)
 
 
 class RefreshHandoffTests(TestCase):
