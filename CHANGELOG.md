@@ -3,6 +3,25 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.4.1 - 2026-09-15
+
+Added by: Knarkoffer
+
+### Changed
+
+- Color the status text green for Safe and On pace, dark yellow for Ahead,
+  orange for Critically ahead, and red for Allowance exhausted.
+- Use monochrome status symbols and match their color to the status message.
+
+### Fixed
+
+- Keep readings in the same period when start or reset timestamps differ by
+  at most one second. Repair existing splits on startup after backing up history.
+- Match the usage status font family to surrounding labels while keeping its
+  larger 16-point size. Remove bold styling from the status and "Usage pace".
+- Display the status symbol in a separate, smaller label centered vertically
+  beside the heading so it no longer shares the text baseline.
+
 ## 0.4.0 - 2026-09-14
 
 Added by: Knarkoffer

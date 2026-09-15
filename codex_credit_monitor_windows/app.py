@@ -10,6 +10,7 @@ import tkinter as tk
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from tkinter import font as tkfont
 from tkinter import messagebox, ttk
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -295,11 +296,57 @@ class MonitorApplication:
             header,
             text="Usage pace",
             foreground="#555555",
-            font=("Segoe UI", 8, "bold"),
         ).grid(row=0, column=0, sticky="w")
-        ttk.Label(header, textvariable=self.status, font=("Segoe UI", 16, "bold")).grid(
-            row=1, column=0, sticky="w"
+        self.status_font = tkfont.Font(
+            root=self.root,
+            font=ttk.Style(self.root).lookup("TLabel", "font") or "TkDefaultFont",
         )
+        self.status_font.configure(size=16, weight="normal")
+        status_row = ttk.Frame(header)
+        status_row.grid(row=1, column=0, sticky="w")
+        self.status_text = tk.StringVar()
+        self.status_icon = tk.StringVar()
+        status_label = ttk.Label(
+            status_row, textvariable=self.status_text, font=self.status_font
+        )
+        status_label.grid(row=0, column=0, sticky="w")
+        default_status_color = ttk.Style(self.root).lookup("TLabel", "foreground")
+        status_colors = {
+            PaceState.BEHIND.value: "#228B22",
+            PaceState.ON_PACE.value: "#228B22",
+            PaceState.AHEAD.value: "#A67C00",
+            PaceState.CRITICAL.value: "#D26900",
+            "Allowance exhausted": "#B00020",
+        }
+        # Text symbols can follow the foreground color; color emoji cannot.
+        status_symbols = {
+            "✅": "✓",
+            "🎯": "◎",
+            "🟠": "●",
+            "⚠️": "⚠\uFE0E",
+            "❔": "?",
+            "❌": "✕",
+            "⏳": "⌛\uFE0E",
+        }
+        icon_label = ttk.Label(
+            status_row,
+            textvariable=self.status_icon,
+            font=("Segoe UI Symbol", 12),
+            anchor="center",
+        )
+        icon_label.grid(row=0, column=1, padx=(8, 0))
+
+        def sync_status_labels(*_args: str) -> None:
+            text, separator, icon = self.status.get().rpartition("  ")
+            status_text = text if separator else self.status.get()
+            self.status_text.set(status_text)
+            self.status_icon.set(status_symbols.get(icon, icon) if separator else "")
+            color = status_colors.get(status_text, default_status_color)
+            status_label.configure(foreground=color)
+            icon_label.configure(foreground=color)
+
+        self.status.trace_add("write", sync_status_labels)
+        sync_status_labels()
         self.refresh_button = ttk.Button(header, text="Refresh", command=self.refresh)
         self.refresh_button.grid(row=0, column=1, rowspan=2, sticky="e")
         details = ttk.Frame(outer, padding=(0, 12, 0, 4))
