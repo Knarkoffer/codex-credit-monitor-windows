@@ -18,6 +18,92 @@ from codex_credit_monitor_windows.storage import HistoryStore
 
 
 class StorageTests(TestCase):
+    def test_one_second_boundary_jitter_keeps_the_period(self):
+        for shift in (-1, 1):
+            with self.subTest(shift=shift), TemporaryDirectory() as directory:
+                with closing(HistoryStore(Path(directory) / "history.sqlite")) as store:
+                    start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+                    end = start + timedelta(days=31)
+                    for index, delta in enumerate((0, shift, 0)):
+                        result = store.commit(
+                            Observation(
+                                "u",
+                                "w",
+                                Decimal(100),
+                                Decimal(index + 1),
+                                end + timedelta(seconds=delta),
+                                start + timedelta(days=1, hours=index),
+                                start + timedelta(seconds=delta),
+                            ),
+                            Schedule(),
+                            Thresholds(),
+                            "UTC",
+                        )
+                    self.assertEqual(
+                        len(store.windows(result.observation.account_key)), 1
+                    )
+                    self.assertEqual(len(store.observations(result.window.id)), 3)
+                    self.assertEqual(store.window(result.window.id).start, start)
+                    self.assertEqual(store.window(result.window.id).end, end)
+
+    def test_existing_split_is_backed_up_and_rejoined_on_open(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "history.sqlite"
+            start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+            end = start + timedelta(days=31)
+            with closing(HistoryStore(path)) as store:
+                for index in range(2):
+                    result = store.commit(
+                        Observation(
+                            "u",
+                            "w",
+                            Decimal(100),
+                            Decimal(index + 1),
+                            end + timedelta(seconds=index * 2),
+                            start + timedelta(days=1, hours=index),
+                            start + timedelta(seconds=index * 2),
+                        ),
+                        Schedule(),
+                        Thresholds(),
+                        "UTC",
+                    )
+                latest_id = result.window.id
+                with store.connection:
+                    store.connection.execute(
+                        "UPDATE windows SET start_at=?,end_at=? WHERE id=?",
+                        (
+                            (start + timedelta(seconds=1)).isoformat(),
+                            (end + timedelta(seconds=1)).isoformat(),
+                            latest_id,
+                        ),
+                    )
+            with closing(HistoryStore(path)) as store:
+                self.assertEqual(len(store.windows(result.observation.account_key)), 1)
+                self.assertEqual(len(store.observations(latest_id)), 2)
+                self.assertEqual(store.window(latest_id).start, start)
+                self.assertEqual(store.window(latest_id).end, end)
+                self.assertEqual(
+                    store.connection.execute(
+                        "SELECT window_id FROM notification_state"
+                    ).fetchone()[0],
+                    latest_id,
+                )
+                self.assertEqual(
+                    store.connection.execute("PRAGMA foreign_key_check").fetchall(), []
+                )
+            backups = list(Path(directory).glob("*.bak"))
+            self.assertEqual(len(backups), 1)
+            with closing(sqlite3.connect(backups[0])) as backup:
+                self.assertEqual(
+                    backup.execute("SELECT COUNT(*) FROM windows").fetchone()[0], 2
+                )
+                self.assertEqual(
+                    backup.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 2
+                )
+            with closing(HistoryStore(path)) as store:
+                self.assertEqual(len(store.observations(latest_id)), 2)
+            self.assertEqual(list(Path(directory).glob("*.bak")), backups)
+
     def test_existing_database_gets_the_metric_column(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "history.sqlite"

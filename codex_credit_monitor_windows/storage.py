@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -19,6 +19,13 @@ from .domain import (
     previous_calendar_month,
 )
 from .settings import app_data_home
+
+
+PERIOD_TIMESTAMP_TOLERANCE = timedelta(seconds=1)
+
+
+def _same_boundary(first: datetime, second: datetime) -> bool:
+    return abs(first - second) <= PERIOD_TIMESTAMP_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -71,6 +78,53 @@ class HistoryStore:
                 self.connection.execute(
                     "ALTER TABLE windows ADD COLUMN usage_mode TEXT NOT NULL DEFAULT 'work'"
                 )
+        self._repair_split_periods(database)
+
+    def _repair_split_periods(self, database: Path) -> None:
+        """Rejoin adjacent periods split by timestamp jitter, preserving readings."""
+        previous: dict[str, Window] = {}
+        merges: list[tuple[Window, Window]] = []
+        for row in self.connection.execute("SELECT * FROM windows ORDER BY id"):
+            current = self._decode(row)
+            older = previous.get(current.account_key)
+            if (
+                older is not None
+                and older.metric is current.metric
+                and older.schedule == current.schedule
+                and older.timezone_name == current.timezone_name
+                and _same_boundary(older.start, current.start)
+                and _same_boundary(older.end, current.end)
+                and max(older.start, current.start) < min(older.end, current.end)
+            ):
+                merges.append((older, current))
+                current = replace(current, start=older.start, end=older.end)
+            previous[current.account_key] = current
+        if not merges:
+            return
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        backup_path = database.with_name(
+            f"{database.name}.before-period-repair-{stamp}.bak"
+        )
+        backup = sqlite3.connect(backup_path)
+        try:
+            self.connection.backup(backup)
+        finally:
+            backup.close()
+        with self.connection:
+            for older, current in merges:
+                self.connection.execute(
+                    "UPDATE observations SET window_id=? WHERE window_id=?",
+                    (current.id, older.id),
+                )
+                self.connection.execute(
+                    "UPDATE notification_state SET window_id=? WHERE window_id=?",
+                    (current.id, older.id),
+                )
+                self.connection.execute(
+                    "UPDATE windows SET start_at=?,end_at=? WHERE id=?",
+                    (_iso(older.start), _iso(older.end), current.id),
+                )
+                self.connection.execute("DELETE FROM windows WHERE id=?", (older.id,))
 
     def close(self) -> None:
         self.connection.close()
@@ -100,10 +154,10 @@ class HistoryStore:
                 window is None
                 or observation.observed_at >= window.end
                 or observation.metric is not window.metric
-                or observation.reset_at != window.end
+                or not _same_boundary(observation.reset_at, window.end)
                 or (
                     observation.window_start is not None
-                    and observation.window_start != window.start
+                    and not _same_boundary(observation.window_start, window.start)
                 )
             )
             if is_new:
