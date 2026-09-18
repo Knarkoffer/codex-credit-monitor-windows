@@ -92,7 +92,7 @@ def _format_pace_status(state: PaceState, *, warning: bool = False) -> str:
         return f"{state.value}  ⚠️"
     symbol = {
         PaceState.BEHIND: "✅",
-        PaceState.ON_PACE: "🎯",
+        PaceState.ON_PACE: "✅",
         PaceState.AHEAD: "🟠",
         PaceState.CRITICAL: "⚠️",
         PaceState.UNAVAILABLE: "❔",
