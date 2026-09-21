@@ -143,7 +143,7 @@ def _forecast_message(
             message = f"If your recent usage trend continues, you'll run out of {allowance} around {when}."
     else:
         message = {
-            ForecastState.WAITING: "Waiting for enough history to estimate usage (at least 3 readings spanning 1 hour in your selected mode).",
+            ForecastState.WAITING: "Waiting for two distinct readings with elapsed time in your selected mode to estimate usage.",
             ForecastState.STALE: "Estimate unavailable: usage data is at least 30 minutes old. Refresh to update it.",
             ForecastState.RESET: "The usage period has ended. Refresh to estimate the new allowance.",
             ForecastState.EXHAUSTED: f"You've used all of your {allowance}, according to the latest reading.",
@@ -156,6 +156,12 @@ def _forecast_message(
             f"\nBased on {forecast.sample_count} readings over "
             f"{forecast.elapsed_seconds / 3600:.1f} {mode} hours."
         )
+        if forecast.active_days:
+            days = "day" if forecast.active_days == 1 else "days"
+            message += (
+                f" Uses the last {forecast.active_days} active {days}"
+                " (including today if active), plus idle time through the latest reading."
+            )
         if schedule.mode is UsageMode.WORK:
             message += " Assumes future usage stays within your weekday working hours."
     return message
@@ -537,6 +543,7 @@ class MonitorApplication:
 
     def _minute_tick(self) -> None:
         self._refresh_display()
+        self.graph.draw()
         self.root.after(60_000, self._minute_tick)
 
     def _current_evaluation(self) -> Evaluation | None:

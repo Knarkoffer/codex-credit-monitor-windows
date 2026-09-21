@@ -10,7 +10,11 @@ from codex_credit_monitor_windows.domain import (
     UsageMetric,
     UsageMode,
 )
-from codex_credit_monitor_windows.forecast import ForecastState, estimate_usage
+from codex_credit_monitor_windows.forecast import (
+    ForecastState,
+    estimate_usage,
+    forecast_points,
+)
 
 
 UTC = ZoneInfo("UTC")
@@ -59,13 +63,39 @@ class ForecastTests(TestCase):
         )
         self.assertEqual(result.sample_count, 3)
         self.assertEqual(result.elapsed_seconds, 7200)
+        self.assertEqual(result.active_days, 1)
 
-    def test_irregular_sampling_does_not_change_the_average_rate(self):
+    def test_extra_readings_do_not_change_the_average_rate(self):
         sparse = [self.reading(0, 0), self.reading(1, 30), self.reading(4, 40)]
-        dense = sparse + [self.reading(1.01, 30), self.reading(1.02, 30)]
+        dense = sparse + [self.reading(0.25, 10), self.reading(0.5, 25)]
         self.assertEqual(
             self.estimate(sparse).exhaustion_at, self.estimate(dense).exhaustion_at
         )
+
+    def test_cutting_back_gradually_delays_the_forecast(self):
+        readings = [self.reading(0, 0), self.reading(0.25, 50)]
+        fast = self.estimate(readings)
+        slow = self.estimate(readings + [self.reading(0.5, 51)])
+        self.assertEqual(fast.state, ForecastState.RUNS_OUT)
+        self.assertEqual(slow.state, ForecastState.RUNS_OUT)
+        self.assertGreater(slow.exhaustion_at, fast.exhaustion_at)
+        self.assertLess(
+            abs(
+                (
+                    slow.exhaustion_at - (self.start + timedelta(hours=100 / 102))
+                ).total_seconds()
+            ),
+            1,
+        )
+        self.assertEqual(slow.sample_count, 3)
+        self.assertEqual(slow.elapsed_seconds, 1800)
+
+    def test_latest_flat_interval_slows_but_preserves_the_daily_trend(self):
+        result = self.estimate(
+            [self.reading(0, 0), self.reading(0.25, 50), self.reading(0.5, 50)]
+        )
+        self.assertEqual(result.state, ForecastState.RUNS_OUT)
+        self.assertEqual(result.usage_per_second, Decimal(50) / 1800)
 
     def test_credits_and_plan_percentages_use_the_same_projection(self):
         plan = [
@@ -84,16 +114,25 @@ class ForecastTests(TestCase):
             self.estimate(plan).exhaustion_at, self.estimate(credits).exhaustion_at
         )
 
-    def test_requires_three_distinct_readings_and_one_hour(self):
+    def test_requires_two_distinct_readings(self):
         for readings in (
             [self.reading(0, 0)],
-            [self.reading(0, 0), self.reading(2, 20)],
-            [self.reading(0, 0), self.reading(0, 1), self.reading(2, 20)],
-            [self.reading(0, 0), self.reading(0.25, 5), self.reading(0.5, 10)],
+            [self.reading(0, 0), self.reading(0, 1)],
         ):
             with self.subTest(readings=readings):
                 self.assertEqual(self.estimate(readings).state, ForecastState.WAITING)
         self.assertEqual(self.estimate([], at=self.start).state, ForecastState.WAITING)
+
+    def test_work_mode_requires_some_working_time_in_the_selected_history(self):
+        readings = [self.reading(10, 20), self.reading(10.25, 25)]
+        self.assertEqual(
+            self.estimate(readings, schedule=Schedule()).state, ForecastState.WAITING
+        )
+        self.assertEqual(self.estimate(readings).state, ForecastState.RUNS_OUT)
+        self.assertEqual(
+            self.estimate([self.reading(0, 0)] + readings, schedule=Schedule()).state,
+            ForecastState.RUNS_OUT,
+        )
 
     def test_latest_duplicate_reading_wins(self):
         result = self.estimate(
@@ -135,9 +174,8 @@ class ForecastTests(TestCase):
         resumed = initial + [
             self.reading(3, 10),
             self.reading(4, 20),
-            self.reading(5, 30),
         ]
-        self.assertEqual(self.estimate(resumed).sample_count, 3)
+        self.assertEqual(self.estimate(resumed).sample_count, 2)
         self.assertLess(
             abs(
                 (
@@ -158,7 +196,7 @@ class ForecastTests(TestCase):
         self.assertEqual(result.state, ForecastState.LASTS_UNTIL_RESET)
 
     def test_ignores_other_accounts_metrics_periods_and_out_of_window_samples(self):
-        current = [self.reading(1, 10), self.reading(2, 20)]
+        current = [self.reading(2, 20)]
         incompatible = (
             self.reading(0, 0, user_id="other"),
             self.reading(0, 0, workspace_id="other"),
@@ -173,24 +211,86 @@ class ForecastTests(TestCase):
                     self.estimate([item] + current).state, ForecastState.WAITING
                 )
 
-    def test_only_last_seven_days_contribute(self):
+    def test_only_last_two_active_days_contribute_in_a_monthly_period(self):
         self.end = self.start + timedelta(days=30)
         readings = [
             self.reading(0, 0),
-            self.reading(24 * 10, 50),
-            self.reading(24 * 10 + 1, 51),
-            self.reading(24 * 10 + 2, 52),
+            self.reading(10, 40),  # Monday's heavy usage, retained only as baseline.
+            self.reading(16, 40),  # Tuesday midnight.
+            self.reading(24, 44),
+            self.reading(40, 44),  # Wednesday midnight.
+            self.reading(48, 48),
         ]
         result = self.estimate(readings)
-        self.assertEqual(result.sample_count, 3)
+        self.assertEqual(result.sample_count, 5)
+        self.assertEqual(result.active_days, 2)
+        self.assertEqual(result.elapsed_seconds, 38 * 3600)
+        self.assertEqual(result.usage_per_second, Decimal(8) / (38 * 3600))
         self.assertLess(
             abs(
                 (
-                    result.exhaustion_at - (self.start + timedelta(hours=24 * 10 + 50))
+                    result.exhaustion_at - (self.start + timedelta(hours=295))
                 ).total_seconds()
             ),
             1,
         )
+
+    def test_observed_activity_can_span_more_than_seven_days(self):
+        self.end = self.start + timedelta(days=30)
+        result = self.estimate([self.reading(0, 10), self.reading(24 * 10, 60)])
+        self.assertEqual(result.state, ForecastState.RUNS_OUT)
+        self.assertLess(
+            abs(
+                (
+                    result.exhaustion_at - (self.start + timedelta(days=18))
+                ).total_seconds()
+            ),
+            1,
+        )
+
+    def test_idle_days_between_and_after_activity_lower_the_rate(self):
+        self.end = self.start + timedelta(days=30)
+        readings = [
+            self.reading(0, 0),
+            self.reading(1, 20),  # Monday active.
+            self.reading(24, 20),  # Tuesday idle.
+            self.reading(48, 30),  # Wednesday active.
+        ]
+        before = self.estimate(readings)
+        after = self.estimate(readings + [self.reading(72, 30)])  # Thursday idle.
+        self.assertEqual(after.active_days, 2)
+        self.assertEqual(before.usage_per_second, Decimal(30) / (48 * 3600))
+        self.assertEqual(after.usage_per_second, Decimal(30) / (72 * 3600))
+        self.assertGreater(after.exhaustion_at, before.exhaustion_at)
+
+    def test_active_days_use_the_period_timezone(self):
+        self.start = datetime(2025, 1, 6, 20, tzinfo=UTC)
+        self.end = self.start + timedelta(days=7)
+        readings = [
+            self.reading(0, 0),
+            self.reading(1, 10),
+            self.reading(3, 20),  # Tuesday midnight in Stockholm, still Monday UTC.
+            self.reading(5, 30),
+            self.reading(27, 40),  # Wednesday midnight in Stockholm, Tuesday UTC.
+        ]
+        utc = self.estimate(readings)
+        local = self.estimate(readings, zone=ZoneInfo("Europe/Stockholm"))
+        self.assertEqual(utc.usage_per_second, Decimal(40) / (27 * 3600))
+        self.assertEqual(local.usage_per_second, Decimal(30) / (26 * 3600))
+        self.assertEqual(local.active_days, 2)
+
+    def test_counter_correction_clears_older_active_days(self):
+        readings = [
+            self.reading(0, 0),
+            self.reading(1, 20),
+            self.reading(24, 40),
+            self.reading(48, 10),
+            self.reading(49, 12),
+        ]
+        result = self.estimate(readings)
+        self.assertEqual(result.active_days, 1)
+        self.assertEqual(result.sample_count, 2)
+        self.assertEqual(result.usage_per_second, Decimal(2) / 3600)
 
     def test_work_projection_skips_nights_and_weekends(self):
         self.start = datetime(2025, 1, 10, 14, tzinfo=UTC)  # Friday
@@ -249,3 +349,61 @@ class ForecastTests(TestCase):
         )
         expected = datetime(2025, 3, 31, 13, tzinfo=zone).astimezone(timezone.utc)
         self.assertLess(abs((result.exhaustion_at - expected).total_seconds()), 1)
+
+    def test_graph_projection_matches_run_out_time_and_latest_reading(self):
+        readings = [self.reading(0, 0), self.reading(0.25, 50), self.reading(0.5, 51)]
+        points = forecast_points(
+            readings, self.start, self.personal, UTC, readings[-1].observed_at
+        )
+        self.assertEqual(points[0], (readings[-1].observed_at, Decimal(51)))
+        self.assertEqual(
+            points[-1], (self.estimate(readings).exhaustion_at, Decimal(100))
+        )
+
+    def test_graph_projection_reaches_reset_below_limit_or_flat(self):
+        self.end = self.start + timedelta(hours=4)
+        for used, expected in ((11, 14), (10, 10)):
+            with self.subTest(used=used):
+                readings = [self.reading(0, 10), self.reading(1, used)]
+                points = forecast_points(
+                    readings, self.start, self.personal, UTC, readings[-1].observed_at
+                )
+                self.assertEqual(points[-1], (self.end, Decimal(expected)))
+
+    def test_graph_projection_pauses_over_weekend(self):
+        self.start = datetime(2025, 1, 10, 14, tzinfo=UTC)
+        self.end = self.start + timedelta(days=7)
+        readings = [self.reading(0, 20), self.reading(1, 30), self.reading(2, 40)]
+        points = dict(
+            forecast_points(
+                readings, self.start, Schedule(), UTC, readings[-1].observed_at
+            )
+        )
+        self.assertAlmostEqual(
+            points[datetime(2025, 1, 10, 17, tzinfo=UTC)], Decimal(50)
+        )
+        self.assertAlmostEqual(
+            points[datetime(2025, 1, 13, 8, tzinfo=UTC)], Decimal(50)
+        )
+
+    def test_graph_projection_is_hidden_without_a_usable_forecast(self):
+        for readings, at in (
+            ([self.reading(0, 10)], self.start),
+            (
+                [self.reading(0, 10), self.reading(1, 20)],
+                self.start + timedelta(hours=1.5),
+            ),
+            ([self.reading(0, 10), self.reading(1, 20)], self.end),
+            (
+                [self.reading(0, 10), self.reading(1, 100)],
+                self.start + timedelta(hours=1),
+            ),
+            (
+                [self.reading(0, 10), self.reading(1, 5)],
+                self.start + timedelta(hours=1),
+            ),
+        ):
+            with self.subTest(readings=readings, at=at):
+                self.assertEqual(
+                    forecast_points(readings, self.start, self.personal, UTC, at), []
+                )

@@ -142,18 +142,37 @@ Hover anywhere over the row for the full explanation and the number of readings
 and hours behind the estimate. This always refers to the current period, even
 when you view an older period in the graph.
 
-The estimate uses the average usage increase between actual readings from the
-last seven days of the current period. It needs at least three readings spanning
-one hour in your selected mode. Personal uses calendar hours; Work measures
-working hours and assumes future consumption happens during your configured
-weekday hours, skipping nights and weekends.
+The estimate uses readings covering the **last two active days** in the current
+period, including today so far if active. An active day is a date in the period's
+configured time zone when the monitor observes usage increasing. It uses the
+reading before the older selected day's first reading as the baseline, then
+divides the usage increase by elapsed time through the latest reading. Idle time
+between those days and since the last activity counts too, so using Codex less
+often gradually flattens the forecast. Earlier days' consumption is excluded.
+
+With fewer than two active days, it uses the available history. It needs at least
+two distinct readings with elapsed time in the selected mode. Personal uses
+calendar hours; Work measures weekday working hours and assumes future usage
+stays within those hours. If the monitor was closed, an increase is attributed
+to the day it is next observed; the history cannot establish exactly when that
+usage happened.
 
 This is an estimate, not a guarantee: changes in your tasks and usage can move
-the date. It does not calculate raw token counts. The monitor waits for new
+the date. A partial first day can still produce a volatile estimate. An unchanged
+reading gradually lowers the average instead of immediately erasing the trend.
+It does not calculate raw token counts. The monitor waits for new
 history after a usage counter decreases or the allocation changes, and withholds
 estimates when readings are at least 30 minutes old. The row also stays hidden
 when there is insufficient history, no measured increase, an already exhausted
 allowance, or an ended period. Predictions never extend beyond the next reset.
+
+The graph shows the same estimate as a blue dotted **Forecast** line extending
+from the latest reading to 100% usage or the reset, whichever comes first.
+Reduced usage makes this line shallower; no measured usage in the selected
+history makes it horizontal.
+In Work mode, it stays flat through nights and weekends. The graph uses the
+same active-day history as the expiry row. Forecasts are hidden
+for stale data, insufficient history, exhausted allowances, and ended periods.
 
 ## Your data
 
