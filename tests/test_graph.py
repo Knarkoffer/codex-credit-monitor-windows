@@ -2,7 +2,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest import TestCase
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 from codex_credit_monitor_windows.domain import Observation, Schedule, UsageMode
@@ -142,3 +142,36 @@ class GraphWindowTests(TestCase):
         _, top, _, bottom = self.graph.create_rectangle.call_args.args
         self.assertGreaterEqual(top, 42)
         self.assertLess(bottom, 200 - 34)
+
+    def test_dotted_forecast_uses_same_day_readings_and_expires_when_stale(self):
+        self.graph.observations = [
+            replace(observation(self.start, "20"), reset_at=self.end),
+            replace(
+                observation(self.start + timedelta(minutes=15), "30"),
+                reset_at=self.end,
+            ),
+        ]
+        with patch("codex_credit_monitor_windows.graph.datetime") as clock:
+            clock.now.return_value = self.start + timedelta(minutes=15)
+            UsageGraph.draw(self.graph)
+            forecasts = [
+                call
+                for call in self.usage_lines()
+                if call.kwargs.get("tags") == "forecast"
+            ]
+            self.assertEqual(len(forecasts), 1)
+            self.assertEqual(forecasts[0].kwargs["dash"], (2, 5))
+            start_x, start_y, end_x, end_y = forecasts[0].args
+            self.assertAlmostEqual(start_x, 54 + 448 * 0.25 / 168)
+            self.assertAlmostEqual(start_y, 42 + 224 * 0.7)
+            self.assertAlmostEqual(end_x, 54 + 448 * 2 / 168, places=3)
+            self.assertEqual(end_y, 42)
+
+            clock.now.return_value += timedelta(minutes=30)
+            self.graph.create_line.reset_mock()
+            UsageGraph.draw(self.graph)
+            self.assertFalse(
+                any(
+                    call.kwargs.get("tags") == "forecast" for call in self.usage_lines()
+                )
+            )

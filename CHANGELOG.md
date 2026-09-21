@@ -3,6 +3,22 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.5.0 - 2026-09-21
+
+Added by: Knarkoffer
+
+### Added
+
+- Show a blue dotted forecast in the usage graph from the latest reading until
+  exhaustion or reset, including flat usage and pauses outside working hours.
+
+### Changed
+
+- Base the expiry forecast on the last two active local days, including idle
+  time through the latest reading, so reduced activity gradually flattens the
+  estimate without reacting to every short pause. Use available history when
+  fewer days are active; retain the selected schedule and reset boundary.
+
 ## 0.4.1 - 2026-09-15
 
 Added by: Knarkoffer

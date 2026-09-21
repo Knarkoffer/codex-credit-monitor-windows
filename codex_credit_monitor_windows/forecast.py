@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from zoneinfo import ZoneInfo
 
-from .domain import Observation, Schedule, pace_seconds
+from .domain import Observation, Schedule, pace_guide_points, pace_seconds
 
 
 STALE_SECONDS = 30 * 60
-LOOKBACK = timedelta(days=7)
-MINIMUM_SAMPLES = 3
-MINIMUM_SECONDS = 60 * 60
 
 
 class ForecastState(str, Enum):
@@ -31,6 +28,8 @@ class UsageForecast:
     exhaustion_at: datetime | None = None
     sample_count: int = 0
     elapsed_seconds: float = 0
+    usage_per_second: Decimal | None = None
+    active_days: int = 0
 
 
 def estimate_usage(
@@ -40,11 +39,13 @@ def estimate_usage(
     zone: ZoneInfo,
     at: datetime,
 ) -> UsageForecast:
-    """Project the recent average consumption rate within one allowance period.
+    """Project consumption over the last two observed active local days.
 
     Use actual readings, never an assumed zero at the period's start. Changes
-    in allocation or a falling counter start a new trend. Sampling more often
-    does not give those intervals extra weight: rate is net increase / time.
+    in allocation or a falling counter restart the history. Attribute increases
+    to the day they are observed, retaining a baseline before the oldest selected
+    day's first reading. Include idle time through the latest reading so reducing
+    activity slows the rate. Use the available history if fewer days are active.
     Work mode measures and projects weekday working time; Personal uses UTC
     elapsed time. A reset bounds every projection.
     """
@@ -74,9 +75,7 @@ def estimate_usage(
         and item.metric is latest.metric
         and item.reset_at == latest.reset_at
         and item.window_start == latest.window_start
-        and max(start, last_at - LOOKBACK)
-        <= item.observed_at.astimezone(timezone.utc)
-        <= last_at
+        and start <= item.observed_at.astimezone(timezone.utc) <= last_at
     }
     samples: list[tuple[datetime, Observation]] = []
     for observed_at, item in sorted(unique.items()):
@@ -88,16 +87,37 @@ def estimate_usage(
             samples.clear()
             continue
         samples.append((observed_at, item))
-    if len(samples) < MINIMUM_SAMPLES:
+    if len(samples) < 2:
         return UsageForecast(ForecastState.WAITING)
+    active_days = sorted(
+        {
+            current[0].astimezone(zone).date()
+            for previous, current in zip(samples, samples[1:])
+            if current[1].used > previous[1].used
+        }
+    )[-2:]
+    if active_days:
+        first_index = next(
+            index
+            for index, (observed_at, _) in enumerate(samples)
+            if observed_at.astimezone(zone).date() >= active_days[0]
+        )
+        # The preceding reading supplies a measured baseline, not an assumed
+        # zero or an invented midnight value. Keep later idle readings too.
+        samples = samples[max(0, first_index - 1) :]
     elapsed = pace_seconds(samples[0][0], last_at, schedule, zone)
-    if elapsed < MINIMUM_SECONDS:
+    if elapsed <= 0:
         return UsageForecast(ForecastState.WAITING)
-    details = {"sample_count": len(samples), "elapsed_seconds": elapsed}
     increase = latest.used - samples[0][1].used
+    elapsed_decimal = Decimal(str(elapsed))
+    details = {
+        "sample_count": len(samples),
+        "elapsed_seconds": elapsed,
+        "usage_per_second": increase / elapsed_decimal,
+        "active_days": len(active_days),
+    }
     if increase <= 0:
         return UsageForecast(ForecastState.FLAT, **details)
-    elapsed_decimal = Decimal(str(elapsed))
     remaining = latest.limit - latest.used
     available = pace_seconds(last_at, end, schedule, zone)
     if remaining * elapsed_decimal >= increase * Decimal(str(available)):
@@ -114,3 +134,38 @@ def estimate_usage(
         else:
             lower = middle
     return UsageForecast(ForecastState.RUNS_OUT, upper, **details)
+
+
+def forecast_points(
+    observations: list[Observation],
+    window_start: datetime,
+    schedule: Schedule,
+    zone: ZoneInfo,
+    at: datetime,
+) -> list[tuple[datetime, Decimal]]:
+    """Return projected usage percentages, including flat non-working hours."""
+    forecast = estimate_usage(observations, window_start, schedule, zone, at)
+    if forecast.usage_per_second is None:
+        return []
+    latest = sorted(
+        observations, key=lambda item: item.observed_at.astimezone(timezone.utc)
+    )[-1]
+    start = latest.observed_at.astimezone(timezone.utc)
+    end = forecast.exhaustion_at or latest.reset_at.astimezone(timezone.utc)
+    elapsed = Decimal(str(pace_seconds(start, end, schedule, zone)))
+    guide = pace_guide_points(start, end, schedule, zone) or [
+        (start, Decimal(0)),
+        (end, Decimal(0)),
+    ]
+    return [
+        (
+            point,
+            min(
+                Decimal(100),
+                (latest.used + forecast.usage_per_second * elapsed * percent / 100)
+                / latest.limit
+                * 100,
+            ),
+        )
+        for point, percent in guide
+    ]

@@ -490,6 +490,8 @@ class ForecastDisplayTests(TestCase):
                     text,
                 )
                 self.assertIn("3 readings over 2.0 calendar hours", text)
+                self.assertIn("last 1 active day", text)
+                self.assertIn("idle time through the latest reading", text)
                 self.assertNotEqual(app.selected_window, app.result.window.id)
                 # Minute ticks must withdraw a forecast when data goes stale.
                 clock.now.return_value += timedelta(minutes=30)

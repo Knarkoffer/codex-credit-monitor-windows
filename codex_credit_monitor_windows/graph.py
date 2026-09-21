@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import tkinter as tk
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from .domain import Observation, UsageMode, pace_guide_points
+from .forecast import forecast_points
 from .storage import Window
 
 
@@ -157,6 +158,26 @@ class UsageGraph(tk.Canvas):
                     fill=USAGE,
                 )
 
+        projected = [
+            point(at, float(percent / 100))
+            for at, percent in forecast_points(
+                observations,
+                window.start,
+                window.schedule,
+                zone,
+                datetime.now(timezone.utc),
+            )
+        ]
+        if len(projected) > 1:
+            self.create_line(
+                *[coordinate for item in projected for coordinate in item],
+                fill=USAGE,
+                width=2,
+                dash=(2, 5),
+                joinstyle="round",
+                tags="forecast",
+            )
+
     def _draw_header(self, left: int) -> None:
         self.create_text(
             left,
@@ -185,6 +206,17 @@ class UsageGraph(tk.Canvas):
                 else "Calendar-time guide"
             ),
             fill=GUIDE,
+            anchor="w",
+            font=("Segoe UI", 9, "bold"),
+        )
+        self.create_line(
+            left + 260, 30, left + 284, 30, fill=USAGE, width=2, dash=(2, 5)
+        )
+        self.create_text(
+            left + 290,
+            30,
+            text="Forecast",
+            fill=USAGE,
             anchor="w",
             font=("Segoe UI", 9, "bold"),
         )
