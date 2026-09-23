@@ -63,7 +63,7 @@ class ForecastTests(TestCase):
         )
         self.assertEqual(result.sample_count, 3)
         self.assertEqual(result.elapsed_seconds, 7200)
-        self.assertEqual(result.active_days, 1)
+        self.assertEqual(result.observed_days, 1)
 
     def test_extra_readings_do_not_change_the_average_rate(self):
         sparse = [self.reading(0, 0), self.reading(1, 30), self.reading(4, 40)]
@@ -211,7 +211,7 @@ class ForecastTests(TestCase):
                     self.estimate([item] + current).state, ForecastState.WAITING
                 )
 
-    def test_only_last_two_active_days_contribute_in_a_monthly_period(self):
+    def test_only_last_two_observed_days_contribute_in_a_monthly_period(self):
         self.end = self.start + timedelta(days=30)
         readings = [
             self.reading(0, 0),
@@ -223,7 +223,7 @@ class ForecastTests(TestCase):
         ]
         result = self.estimate(readings)
         self.assertEqual(result.sample_count, 5)
-        self.assertEqual(result.active_days, 2)
+        self.assertEqual(result.observed_days, 2)
         self.assertEqual(result.elapsed_seconds, 38 * 3600)
         self.assertEqual(result.usage_per_second, Decimal(8) / (38 * 3600))
         self.assertLess(
@@ -258,12 +258,12 @@ class ForecastTests(TestCase):
         ]
         before = self.estimate(readings)
         after = self.estimate(readings + [self.reading(72, 30)])  # Thursday idle.
-        self.assertEqual(after.active_days, 2)
-        self.assertEqual(before.usage_per_second, Decimal(30) / (48 * 3600))
-        self.assertEqual(after.usage_per_second, Decimal(30) / (72 * 3600))
+        self.assertEqual(after.observed_days, 2)
+        self.assertEqual(before.usage_per_second, Decimal(10) / (47 * 3600))
+        self.assertEqual(after.usage_per_second, Decimal(10) / (48 * 3600))
         self.assertGreater(after.exhaustion_at, before.exhaustion_at)
 
-    def test_active_days_use_the_period_timezone(self):
+    def test_observed_days_use_the_period_timezone(self):
         self.start = datetime(2025, 1, 6, 20, tzinfo=UTC)
         self.end = self.start + timedelta(days=7)
         readings = [
@@ -277,9 +277,50 @@ class ForecastTests(TestCase):
         local = self.estimate(readings, zone=ZoneInfo("Europe/Stockholm"))
         self.assertEqual(utc.usage_per_second, Decimal(40) / (27 * 3600))
         self.assertEqual(local.usage_per_second, Decimal(30) / (26 * 3600))
-        self.assertEqual(local.active_days, 2)
+        self.assertEqual(local.observed_days, 2)
 
-    def test_counter_correction_clears_older_active_days(self):
+    def test_quiet_refresh_days_replace_old_busy_days(self):
+        self.end = self.start + timedelta(days=30)
+        for schedule, hours in ((self.personal, 48), (Schedule(), 18)):
+            for extra in (Decimal(0), Decimal("0.1")):
+                with self.subTest(mode=schedule.mode, extra=extra):
+                    readings = [
+                        self.reading(0, 0),
+                        self.reading(1, 90),  # Monday's busy session.
+                        self.reading(9, 90),  # Monday's closing baseline.
+                        self.reading(24, 90),  # Tuesday refresh, no usage.
+                        self.reading(33, 90 + extra),
+                        self.reading(48, 90 + extra),  # Wednesday refresh.
+                        self.reading(57, 90 + extra * 2),
+                    ]
+                    result = self.estimate(readings, schedule=schedule)
+                    self.assertEqual(result.observed_days, 2)
+                    self.assertEqual(result.sample_count, 5)
+                    self.assertEqual(result.elapsed_seconds, hours * 3600)
+                    self.assertEqual(
+                        result.usage_per_second, extra * 2 / (hours * 3600)
+                    )
+                    self.assertEqual(
+                        result.state,
+                        (
+                            ForecastState.FLAT
+                            if extra == 0
+                            else ForecastState.LASTS_UNTIL_RESET
+                        ),
+                    )
+                    self.assertIsNone(result.exhaustion_at)
+                    if extra == 0:
+                        points = forecast_points(
+                            readings,
+                            self.start,
+                            schedule,
+                            UTC,
+                            readings[-1].observed_at,
+                        )
+                        self.assertTrue(points)
+                        self.assertTrue(all(percent == 90 for _, percent in points))
+
+    def test_counter_correction_clears_older_observed_days(self):
         readings = [
             self.reading(0, 0),
             self.reading(1, 20),
@@ -288,7 +329,7 @@ class ForecastTests(TestCase):
             self.reading(49, 12),
         ]
         result = self.estimate(readings)
-        self.assertEqual(result.active_days, 1)
+        self.assertEqual(result.observed_days, 1)
         self.assertEqual(result.sample_count, 2)
         self.assertEqual(result.usage_per_second, Decimal(2) / 3600)
 

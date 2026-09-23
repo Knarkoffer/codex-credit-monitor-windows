@@ -3,6 +3,15 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.5.1 - 2026-09-23
+
+Added by: Knarkoffer
+
+### Fixed
+
+- Include days with refreshed but unchanged usage in the forecast's last two
+  observed days, so quiet days replace older busy days in the average.
+
 ## 0.5.0 - 2026-09-21
 
 Added by: Knarkoffer
