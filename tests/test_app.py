@@ -308,7 +308,7 @@ class PaceStatusTests(TestCase):
     def test_each_pace_state_gets_its_agreed_symbol(self):
         expected = {
             PaceState.BEHIND: "Safe  ✅",
-            PaceState.ON_PACE: "On pace  🎯",
+            PaceState.ON_PACE: "On pace  ✅",
             PaceState.AHEAD: "Ahead  🟠",
             PaceState.CRITICAL: "Critically ahead  ⚠️",
             PaceState.UNAVAILABLE: "Unavailable  ❔",
@@ -363,7 +363,7 @@ class PaceStatusTests(TestCase):
                         app._refresh_display()
                         # Near reset, pace alone says On pace even at 100%.
                         app.status.set.assert_called_with(
-                            "On pace  🎯" if used < 100 else "Allowance exhausted  ❌"
+                            "On pace  ✅" if used < 100 else "Allowance exhausted  ❌"
                         )
                         clock.now.return_value = end
                         app._refresh_display()
@@ -490,7 +490,7 @@ class ForecastDisplayTests(TestCase):
                     text,
                 )
                 self.assertIn("3 readings over 2.0 calendar hours", text)
-                self.assertIn("last 1 active day", text)
+                self.assertIn("last 1 day with readings", text)
                 self.assertIn("idle time through the latest reading", text)
                 self.assertNotEqual(app.selected_window, app.result.window.id)
                 # Minute ticks must withdraw a forecast when data goes stale.

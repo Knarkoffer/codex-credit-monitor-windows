@@ -156,11 +156,11 @@ def _forecast_message(
             f"\nBased on {forecast.sample_count} readings over "
             f"{forecast.elapsed_seconds / 3600:.1f} {mode} hours."
         )
-        if forecast.active_days:
-            days = "day" if forecast.active_days == 1 else "days"
+        if forecast.observed_days:
+            days = "day" if forecast.observed_days == 1 else "days"
             message += (
-                f" Uses the last {forecast.active_days} active {days}"
-                " (including today if active), plus idle time through the latest reading."
+                f" Uses the last {forecast.observed_days} {days} with readings"
+                " (including days with no usage increase), plus idle time through the latest reading."
             )
         if schedule.mode is UsageMode.WORK:
             message += " Assumes future usage stays within your weekday working hours."

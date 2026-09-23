@@ -29,7 +29,7 @@ class UsageForecast:
     sample_count: int = 0
     elapsed_seconds: float = 0
     usage_per_second: Decimal | None = None
-    active_days: int = 0
+    observed_days: int = 0
 
 
 def estimate_usage(
@@ -39,13 +39,14 @@ def estimate_usage(
     zone: ZoneInfo,
     at: datetime,
 ) -> UsageForecast:
-    """Project consumption over the last two observed active local days.
+    """Project consumption over the last two local days with readings.
 
     Use actual readings, never an assumed zero at the period's start. Changes
     in allocation or a falling counter restart the history. Attribute increases
     to the day they are observed, retaining a baseline before the oldest selected
     day's first reading. Include idle time through the latest reading so reducing
-    activity slows the rate. Use the available history if fewer days are active.
+    activity slows the rate. Days with unchanged usage count too. Use the
+    available history if fewer than two days have readings.
     Work mode measures and projects weekday working time; Personal uses UTC
     elapsed time. A reset bounds every projection.
     """
@@ -89,18 +90,14 @@ def estimate_usage(
         samples.append((observed_at, item))
     if len(samples) < 2:
         return UsageForecast(ForecastState.WAITING)
-    active_days = sorted(
-        {
-            current[0].astimezone(zone).date()
-            for previous, current in zip(samples, samples[1:])
-            if current[1].used > previous[1].used
-        }
+    observed_days = sorted(
+        {observed_at.astimezone(zone).date() for observed_at, _ in samples}
     )[-2:]
-    if active_days:
+    if observed_days:
         first_index = next(
             index
             for index, (observed_at, _) in enumerate(samples)
-            if observed_at.astimezone(zone).date() >= active_days[0]
+            if observed_at.astimezone(zone).date() >= observed_days[0]
         )
         # The preceding reading supplies a measured baseline, not an assumed
         # zero or an invented midnight value. Keep later idle readings too.
@@ -114,7 +111,7 @@ def estimate_usage(
         "sample_count": len(samples),
         "elapsed_seconds": elapsed,
         "usage_per_second": increase / elapsed_decimal,
-        "active_days": len(active_days),
+        "observed_days": len(observed_days),
     }
     if increase <= 0:
         return UsageForecast(ForecastState.FLAT, **details)

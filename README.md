@@ -142,16 +142,18 @@ Hover anywhere over the row for the full explanation and the number of readings
 and hours behind the estimate. This always refers to the current period, even
 when you view an older period in the graph.
 
-The estimate uses readings covering the **last two active days** in the current
-period, including today so far if active. An active day is a date in the period's
-configured time zone when the monitor observes usage increasing. It uses the
-reading before the older selected day's first reading as the baseline, then
+The estimate uses readings covering the **last two days with recorded readings**
+in the current period, including today so far. Dates use the period's configured
+time zone. Refreshes count even when usage is unchanged, so quiet days replace
+older busy days in the average. Days without readings do not count toward the
+two selected days. It uses the reading before the older selected day's first
+reading as the baseline, then
 divides the usage increase by elapsed time through the latest reading. Idle time
 between those days and since the last activity counts too, so using Codex less
 often gradually flattens the forecast. Earlier days' consumption is excluded.
 
-With fewer than two active days, it uses the available history. It needs at least
-two distinct readings with elapsed time in the selected mode. Personal uses
+With fewer than two days with readings, it uses the available history. It needs
+at least two distinct readings with elapsed time in the selected mode. Personal uses
 calendar hours; Work measures weekday working hours and assumes future usage
 stays within those hours. If the monitor was closed, an increase is attributed
 to the day it is next observed; the history cannot establish exactly when that
