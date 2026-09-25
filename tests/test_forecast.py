@@ -12,12 +12,50 @@ from codex_credit_monitor_windows.domain import (
 )
 from codex_credit_monitor_windows.forecast import (
     ForecastState,
+    UsageForecast,
     estimate_usage,
     forecast_points,
 )
 
 
 UTC = ZoneInfo("UTC")
+
+
+class ForecastRiskTests(TestCase):
+    def test_risk_requires_exhaustion_strictly_before_the_five_percent_margin(self):
+        start = datetime(2026, 9, 1, tzinfo=UTC)
+        for days in (7, 30):
+            end = start + timedelta(days=days)
+            cutoff = end - timedelta(days=days) / 20
+            for offset, expected in ((-1, True), (0, False), (1, False)):
+                with self.subTest(days=days, offset=offset):
+                    forecast = UsageForecast(
+                        ForecastState.RUNS_OUT, cutoff + timedelta(seconds=offset)
+                    )
+                    self.assertEqual(forecast.runs_out_early(start, end), expected)
+
+    def test_margin_uses_actual_elapsed_time_across_daylight_saving(self):
+        zone = ZoneInfo("Europe/Stockholm")
+        start = datetime(2026, 10, 23, tzinfo=zone)
+        end = datetime(2026, 10, 30, tzinfo=zone)
+        # This week contains 169 hours, making its margin 8 hours 27 minutes.
+        cutoff = end.astimezone(UTC) - timedelta(hours=8, minutes=27)
+        self.assertFalse(
+            UsageForecast(ForecastState.RUNS_OUT, cutoff).runs_out_early(start, end)
+        )
+        self.assertTrue(
+            UsageForecast(
+                ForecastState.RUNS_OUT, cutoff - timedelta(seconds=1)
+            ).runs_out_early(start, end)
+        )
+
+    def test_other_forecast_states_cannot_trigger_risk(self):
+        start = datetime(2026, 9, 1, tzinfo=UTC)
+        end = start + timedelta(days=7)
+        for state in ForecastState:
+            if state is not ForecastState.RUNS_OUT:
+                with self.subTest(state=state):
+                    self.assertFalse(UsageForecast(state).runs_out_early(start, end))
 
 
 class ForecastTests(TestCase):

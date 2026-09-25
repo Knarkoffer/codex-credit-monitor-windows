@@ -3,6 +3,17 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.6.0 - 2026-09-25
+
+Added by: Knarkoffer
+
+### Added
+
+- Show an orange "At risk" warning instead of Safe or On pace when the forecast
+  predicts exhaustion more than 5% of the full calendar allowance period before
+  renewal. Keep the normal pace status within that margin and retain the expiry
+  forecast row for all predicted shortfalls.
+
 ## 0.5.1 - 2026-09-23
 
 Added by: Knarkoffer

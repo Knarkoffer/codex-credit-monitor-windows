@@ -322,6 +322,7 @@ class MonitorApplication:
             PaceState.ON_PACE.value: "#228B22",
             PaceState.AHEAD.value: "#A67C00",
             PaceState.CRITICAL.value: "#D26900",
+            "At risk": "#D26900",
             "Allowance exhausted": "#B00020",
         }
         # Text symbols can follow the foreground color; color emoji cannot.
@@ -585,15 +586,30 @@ class MonitorApplication:
         now = datetime.now(timezone.utc)
         stale = now >= observation.observed_at + timedelta(seconds=STALE_SECONDS)
         period_ended = now >= observation.reset_at
+        window = self.result.window
+        forecast = estimate_usage(
+            self.store.observations(window.id),
+            window.start,
+            window.schedule,
+            ZoneInfo(window.timezone_name),
+            now,
+        )
+        pace_status = _format_pace_status(
+            evaluation.state, warning=stale or bool(self.last_error)
+        )
+        if (
+            not stale
+            and evaluation.state in (PaceState.BEHIND, PaceState.ON_PACE)
+            and forecast.runs_out_early(window.start, observation.reset_at)
+        ):
+            pace_status = "At risk  ⚠️"
         self.status.set(
             "Period ended  ❔"
             if period_ended
             else (
                 "Allowance exhausted  ❌"
                 if observation.used >= observation.limit
-                else _format_pace_status(
-                    evaluation.state, warning=stale or bool(self.last_error)
-                )
+                else pace_status
             )
         )
         if observation.metric is UsageMetric.PLAN_USAGE:
@@ -639,14 +655,6 @@ class MonitorApplication:
                 0, "The usage period has ended. Refresh to load the new allowance."
             )
         self.message.set(" ".join(messages))
-        window = self.result.window
-        forecast = estimate_usage(
-            self.store.observations(window.id),
-            window.start,
-            window.schedule,
-            ZoneInfo(window.timezone_name),
-            now,
-        )
         if forecast.state is not ForecastState.RUNS_OUT:
             self._hide_forecast()
             return

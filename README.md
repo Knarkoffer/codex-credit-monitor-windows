@@ -128,6 +128,13 @@ your usage relative to the selected schedule. At 100% usage or above,
 **Allowance exhausted** takes priority over pace. This refers to the monitored
 credits or plan allowance, not a raw token count.
 
+**At risk** appears in orange with a warning symbol instead of Safe or On pace
+when the expiry forecast predicts running out more than 5% of the full allowance
+period before renewal (about 8 hours for a week or 1½ days for a 30-day period).
+This margin uses calendar time in both Personal and Work modes. Within the
+margin, the normal pace status remains and the expiry forecast still appears
+below it. Ahead and Critically ahead keep their existing warnings.
+
 Once the reset time passes, **Period ended** replaces the previous status and
 asks you to refresh for the new allowance. Stale readings and refresh errors
 remain explained below the details; they do not confirm your current balance.

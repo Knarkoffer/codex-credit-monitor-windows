@@ -1,5 +1,6 @@
 import queue
 import sys
+from dataclasses import replace
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -305,6 +306,104 @@ class HoverTooltipTests(TestCase):
 
 
 class PaceStatusTests(TestCase):
+    def test_early_exhaustion_overrides_only_green_statuses_in_both_modes(self):
+        start = datetime(2026, 9, 21, tzinfo=timezone.utc)
+        end = start + timedelta(days=7)
+        now = start + timedelta(days=3, hours=12)
+        app = MonitorApplication.__new__(MonitorApplication)
+        app.values = {
+            key: Mock()
+            for key in ("spent", "left", "working", "pace", "reset", "updated")
+        }
+        app.labels = {key: Mock() for key in ("spent", "left", "working")}
+        for name in (
+            "tray",
+            "status",
+            "message",
+            "forecast",
+            "forecast_row",
+            "forecast_tooltip",
+        ):
+            setattr(app, name, Mock())
+        app.last_error = None
+        app.store = Mock()
+        app.result = Mock()
+        with patch("codex_credit_monitor_windows.app.datetime") as clock:
+            clock.now.return_value = now
+            for mode in UsageMode:
+                app.settings = Settings(schedule=Schedule(mode=mode))
+                app.result.window = Mock(
+                    start=start, schedule=app.settings.schedule, timezone_name="UTC"
+                )
+                # Thursday noon: 50% of calendar time or 31/45 working hours.
+                on_pace_used = 50 if mode is UsageMode.PERSONAL else 69
+                for used, expected in (
+                    (on_pace_used - 10, "At risk  ⚠️"),
+                    (on_pace_used, "At risk  ⚠️"),
+                    (on_pace_used + 8, "Ahead  🟠"),
+                    (on_pace_used + 30, "Critically ahead  ⚠️"),
+                    (100, "Allowance exhausted  ❌"),
+                ):
+                    with self.subTest(mode=mode, used=used):
+                        latest = Observation(
+                            "u", "w", Decimal(100), Decimal(used), end, now, start
+                        )
+                        app.result.observation = latest
+                        app.store.observations.return_value = [
+                            replace(
+                                latest,
+                                used=latest.used - 20,
+                                observed_at=now - timedelta(hours=1),
+                            ),
+                            latest,
+                        ]
+                        app._refresh_display()
+                        app.status.set.assert_called_with(expected)
+                        if used < 100:
+                            app.forecast_row.grid.assert_called()
+
+                # The forecast is withdrawn at the freshness boundary.
+                latest = replace(latest, used=Decimal(on_pace_used))
+                app.result.observation = latest
+                app.store.observations.return_value = [
+                    replace(
+                        latest,
+                        used=latest.used - 20,
+                        observed_at=now - timedelta(hours=1),
+                    ),
+                    latest,
+                ]
+                clock.now.return_value = now + timedelta(minutes=30)
+                app._refresh_display()
+                app.status.set.assert_called_with("On pace  ⚠️")
+                app.forecast.set.assert_called_with("")
+                clock.now.return_value = end
+                app._refresh_display()
+                app.status.set.assert_called_with("Period ended  ❔")
+                clock.now.return_value = now
+
+                # Small shortfalls retain the pace status and expiry row.
+                cutoff = end - (end - start) / 20
+                for offset, expected in (
+                    (-1, "At risk  ⚠️"),
+                    (0, "On pace  ✅"),
+                    (1, "On pace  ✅"),
+                ):
+                    with (
+                        self.subTest(mode=mode, cutoff_offset=offset),
+                        patch(
+                            "codex_credit_monitor_windows.app.estimate_usage",
+                            return_value=UsageForecast(
+                                ForecastState.RUNS_OUT,
+                                cutoff + timedelta(seconds=offset),
+                            ),
+                        ),
+                    ):
+                        app.forecast_row.reset_mock()
+                        app._refresh_display()
+                        app.status.set.assert_called_with(expected)
+                        app.forecast_row.grid.assert_called_once_with()
+
     def test_each_pace_state_gets_its_agreed_symbol(self):
         expected = {
             PaceState.BEHIND: "Safe  ✅",

@@ -31,6 +31,16 @@ class UsageForecast:
     usage_per_second: Decimal | None = None
     observed_days: int = 0
 
+    def runs_out_early(self, window_start: datetime, reset_at: datetime) -> bool:
+        """Allow a grace margin of 5% of the full calendar period before reset."""
+        if self.state is not ForecastState.RUNS_OUT or self.exhaustion_at is None:
+            return False
+        start = window_start.astimezone(timezone.utc)
+        end = reset_at.astimezone(timezone.utc)
+        return end > start and (
+            end - self.exhaustion_at.astimezone(timezone.utc) > (end - start) / 20
+        )
+
 
 def estimate_usage(
     observations: list[Observation],
