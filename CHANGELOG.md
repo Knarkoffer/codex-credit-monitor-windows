@@ -3,6 +3,15 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.6.1 - 2026-10-05
+
+Added by: Knarkoffer
+
+### Fixed
+
+- Draw historical usage as a solid blue line, including the initial segment and
+  gaps between readings. Reserve the dotted blue line for the forecast.
+
 ## 0.6.0 - 2026-09-25
 
 Added by: Knarkoffer

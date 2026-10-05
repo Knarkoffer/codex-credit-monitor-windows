@@ -76,6 +76,22 @@ class GraphWindowTests(TestCase):
         for actual, value in zip(lines[0].args, expected):
             self.assertAlmostEqual(actual, value)
 
+    def test_history_is_solid_from_period_start_including_long_gaps(self):
+        self.graph.observations = [
+            observation(self.start + timedelta(hours=12), "10"),
+            observation(self.start + timedelta(days=6), "30"),
+        ]
+
+        UsageGraph.draw(self.graph)
+
+        lines = self.usage_lines()
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0].args[:2], (54, 266))
+        self.assertEqual(lines[0].args[2:], lines[1].args[:2])
+        for line in lines:
+            self.assertNotIn("dash", line.kwargs)
+            self.assertEqual(line.kwargs["width"], 3)
+
     def test_window_filter_runs_before_selecting_the_last_reading_of_each_day(self):
         self.graph.window_data = replace(
             self.graph.window_data,

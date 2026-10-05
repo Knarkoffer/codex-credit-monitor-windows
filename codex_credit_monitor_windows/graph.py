@@ -118,24 +118,19 @@ class UsageGraph(tk.Canvas):
                     first_x,
                     first_y,
                     fill=USAGE,
-                    width=2,
-                    dash=(2, 5),
+                    width=3,
+                    joinstyle="round",
                 )
-        for index, ((start_x, start_y), (end_x, end_y)) in enumerate(
-            zip(actual, actual[1:])
-        ):
-            gap = (
-                actual_observations[index + 1].observed_at
-                - actual_observations[index].observed_at
-            ).total_seconds()
-            line_options = {
-                "fill": USAGE,
-                "width": 3,
-                "joinstyle": "round",
-            }
-            if gap > 4 * 24 * 60 * 60:
-                line_options["dash"] = (2, 5)
-            self.create_line(start_x, start_y, end_x, end_y, **line_options)
+        for (start_x, start_y), (end_x, end_y) in zip(actual, actual[1:]):
+            self.create_line(
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                fill=USAGE,
+                width=3,
+                joinstyle="round",
+            )
         for index, (x, y) in enumerate(actual):
             is_current = index == len(actual) - 1
             radius = 4 if is_current else 3
