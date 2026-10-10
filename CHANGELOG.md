@@ -3,6 +3,15 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.6.2 - 2026-10-10
+
+Added by: Knarkoffer
+
+### Fixed
+
+- Remove the question-mark icon from "Usage unavailable" and hide the Usage
+  window selector until usage is available.
+
 ## 0.6.1 - 2026-10-05
 
 Added by: Knarkoffer

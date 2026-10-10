@@ -236,6 +236,7 @@ class UsageModeTests(TestCase):
                 key: Mock()
                 for key in ("spent", "left", "working", "pace", "reset", "updated")
             }
+            app.window_selector = Mock()
             app.labels = {key: Mock() for key in ("spent", "left", "working")}
             app.tray = Mock()
             app.status = Mock()
@@ -315,6 +316,7 @@ class PaceStatusTests(TestCase):
             key: Mock()
             for key in ("spent", "left", "working", "pace", "reset", "updated")
         }
+        app.window_selector = Mock()
         app.labels = {key: Mock() for key in ("spent", "left", "working")}
         for name in (
             "tray",
@@ -432,6 +434,7 @@ class PaceStatusTests(TestCase):
             key: Mock()
             for key in ("spent", "left", "working", "pace", "reset", "updated")
         }
+        app.window_selector = Mock()
         app.labels = {key: Mock() for key in ("spent", "left", "working")}
         app.tray = Mock()
         app.status = Mock()
@@ -487,11 +490,12 @@ class PaceStatusTests(TestCase):
             app.result = None
             for refreshing, label in (
                 (True, "Refreshing…  ⏳"),
-                (False, "Usage unavailable  ❔"),
+                (False, "Usage unavailable"),
             ):
                 app.refreshing = refreshing
                 app._refresh_display()
                 app.status.set.assert_called_with(label)
+                app.window_selector.grid_remove.assert_called()
 
 
 class ForecastDisplayTests(TestCase):
@@ -570,6 +574,7 @@ class ForecastDisplayTests(TestCase):
                 key: Mock()
                 for key in ("spent", "left", "working", "pace", "reset", "updated")
             }
+            app.window_selector = Mock()
             app.labels = {key: Mock() for key in ("spent", "left", "working")}
             app.tray = Mock()
             app.status = Mock()
