@@ -281,7 +281,7 @@ class MonitorApplication:
             "left": tk.StringVar(value="Credits left"),
             "working": tk.StringVar(),
         }
-        self.status = tk.StringVar(value="Usage unavailable  ❔")
+        self.status = tk.StringVar(value="Usage unavailable")
         self.message = tk.StringVar(value="Waiting for the first successful refresh.")
         self.forecast = tk.StringVar()
         self.window_choice = tk.StringVar()
@@ -394,8 +394,9 @@ class MonitorApplication:
         ttk.Label(
             outer, textvariable=self.message, wraplength=570, foreground="#9b3f00"
         ).grid(row=2, column=0, sticky="w", pady=(4, 10))
-        selector = ttk.Frame(outer)
+        self.window_selector = selector = ttk.Frame(outer)
         selector.grid(row=3, column=0, sticky="ew", pady=(0, 6))
+        selector.grid_remove()
         selector.columnconfigure(1, weight=1)
         ttk.Label(selector, text="Usage window").grid(
             row=0, column=0, sticky="w", padx=(0, 10)
@@ -571,14 +572,16 @@ class MonitorApplication:
         )
         evaluation = self._current_evaluation()
         if self.result is None or evaluation is None:
+            self.window_selector.grid_remove()
             self.status.set(
-                "Refreshing…  ⏳" if self.refreshing else "Usage unavailable  ❔"
+                "Refreshing…  ⏳" if self.refreshing else "Usage unavailable"
             )
             self.message.set(
                 self.last_error or "Waiting for the first successful refresh."
             )
             self._hide_forecast()
             return
+        self.window_selector.grid()
         observation = self.result.observation
         spent = observation.used / observation.limit * Decimal(100)
         self.tray.set_utilization(spent)
