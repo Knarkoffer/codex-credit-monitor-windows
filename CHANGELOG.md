@@ -3,6 +3,16 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 0.6.3 - 2026-10-21
+
+Added by: Knarkoffer
+
+### Fixed
+
+- Retry unavailable Codex token files every 2 minutes, including when the
+  selected WSL distribution is stopped. Resume 15-minute refreshes after
+  recovery and cancel pending retries when refreshing manually.
+
 ## 0.6.2 - 2026-10-10
 
 Added by: Knarkoffer
