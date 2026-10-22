@@ -37,6 +37,7 @@ from codex_credit_monitor_windows.domain import (
 from codex_credit_monitor_windows.settings import Settings, SettingsStore
 from codex_credit_monitor_windows.forecast import ForecastState, UsageForecast
 from codex_credit_monitor_windows.storage import HistoryStore
+from codex_credit_monitor_windows.usage import CredentialsUnavailableError, UsageError
 
 
 class FakeShell32:
@@ -682,6 +683,89 @@ class RefreshHandoffTests(TestCase):
         app._commit_observation.assert_called_once_with(observation)
         app._finish_refresh.assert_not_called()
         self.assertEqual(app.root.after.call_args.args[0], 100)
+
+
+class RefreshRetryTests(TestCase):
+    def setUp(self):
+        self.app = MonitorApplication.__new__(MonitorApplication)
+        self.app.root = Mock()
+        self.app.root.after.return_value = "refresh-timer"
+        self.app.settings = Settings()
+        self.app.refresh_results = queue.SimpleQueue()
+        self.app.refresh_timer = None
+        self.app.refresh_pending = False
+        self.app.refreshing = False
+        self.app.refresh_button = Mock()
+        self.app._refresh_display = Mock()
+
+    def test_missing_credentials_retry_repeatedly_then_resume_normal_interval(self):
+        app = self.app
+        error = CredentialsUnavailableError("Credentials could not be read.")
+        observation = Mock()
+        app._commit_observation = Mock(side_effect=lambda _: app._finish_refresh(None))
+        app.closing = False
+        with (
+            patch(
+                "codex_credit_monitor_windows.app.read_credentials",
+                side_effect=[error, error, Mock()],
+            ),
+            patch(
+                "codex_credit_monitor_windows.app.fetch_usage",
+                return_value=observation,
+            ) as fetch,
+        ):
+            for delay in (120_000, 120_000, 900_000):
+                app.root.reset_mock()
+                app._fetch_worker()
+                app._poll_refresh_results()
+                app.root.after.assert_any_call(delay, app._scheduled_refresh)
+
+        fetch.assert_called_once()
+        app._commit_observation.assert_called_once_with(observation)
+        self.assertFalse(app.refreshing)
+
+    def test_other_errors_and_success_use_normal_interval(self):
+        for error in (UsageError("HTTP 402"), "Unexpected failure", None):
+            with self.subTest(error=error):
+                self.app.root.reset_mock()
+                self.app._finish_refresh(error)
+                self.app.root.after.assert_called_once_with(
+                    900_000, self.app._scheduled_refresh
+                )
+
+    def test_manual_refresh_cancels_retry_and_success_schedules_normal_refresh(self):
+        app = self.app
+        app._finish_refresh(CredentialsUnavailableError("Missing token file"))
+        self.assertEqual(app.last_error, "Missing token file")
+        app.root.reset_mock()
+
+        with patch("codex_credit_monitor_windows.app.threading.Thread") as thread:
+            app.refresh()
+
+        app.root.after_cancel.assert_called_once_with("refresh-timer")
+        self.assertIsNone(app.refresh_timer)
+        self.assertIsNone(app.last_error)
+        thread.return_value.start.assert_called_once()
+        app._finish_refresh(None)
+        app.root.after.assert_called_once_with(900_000, app._scheduled_refresh)
+
+    def test_pending_manual_refresh_runs_immediately_without_scheduling_retry(self):
+        self.app.refresh_pending = True
+
+        self.app._finish_refresh(CredentialsUnavailableError("Missing token file"))
+
+        self.app.root.after.assert_called_once_with(0, self.app.refresh)
+        self.assertFalse(self.app.refresh_pending)
+
+    def test_scheduled_refresh_consumes_timer_before_refreshing(self):
+        self.app.refresh_timer = "expired-timer"
+        self.app.refresh = Mock()
+
+        self.app._scheduled_refresh()
+
+        self.assertIsNone(self.app.refresh_timer)
+        self.app.refresh.assert_called_once_with()
+        self.app.root.after.assert_not_called()
 
 
 class WindowSelectionTests(TestCase):

@@ -30,12 +30,18 @@ from .settings import Settings, SettingsStore
 from .single_instance import SingleInstance
 from .storage import CommitResult, HistoryStore
 from .tray import TrayController, create_icon_image
-from .usage import UsageError, fetch_usage, read_credentials
+from .usage import (
+    CredentialsUnavailableError,
+    UsageError,
+    fetch_usage,
+    read_credentials,
+)
 from .version import VERSION_LABEL
 from .wsl import distributions
 
 
 REFRESH_MILLISECONDS = 15 * 60 * 1000
+CREDENTIAL_RETRY_MILLISECONDS = 2 * 60 * 1000
 WINDOWS_APP_USER_MODEL_ID = "CodexCreditMonitor.Windows"
 AUTOMATIC_LOGIN_SOURCE = "Automatic (Windows first, then default WSL)"
 
@@ -268,8 +274,9 @@ class MonitorApplication:
         self.last_error: str | None = None
         self.refreshing = False
         self.refresh_pending = False
+        self.refresh_timer: str | None = None
         self.refresh_results: queue.SimpleQueue[
-            tuple[Observation | None, str | None]
+            tuple[Observation | None, UsageError | str | None]
         ] = queue.SimpleQueue()
         self.selected_window: int | None = None
         self.values: dict[str, tk.StringVar] = {
@@ -427,7 +434,6 @@ class MonitorApplication:
     def run(self) -> None:
         self.refresh()
         self.root.after(100, self._poll_refresh_results)
-        self.root.after(REFRESH_MILLISECONDS, self._scheduled_refresh)
         self.root.after(60_000, self._minute_tick)
         self.root.mainloop()
 
@@ -476,6 +482,9 @@ class MonitorApplication:
         if self.refreshing:
             self.refresh_pending = True
             return
+        if self.refresh_timer is not None:
+            self.root.after_cancel(self.refresh_timer)
+            self.refresh_timer = None
         self.refreshing, self.last_error = True, None
         self.refresh_button.configure(state="disabled")
         self._refresh_display()
@@ -487,7 +496,7 @@ class MonitorApplication:
             self.refresh_results.put((observation, None))
         except Exception as error:
             message = (
-                str(error)
+                error
                 if isinstance(error, UsageError)
                 else "Usage refresh failed unexpectedly."
             )
@@ -529,19 +538,26 @@ class MonitorApplication:
             )
         self._finish_refresh(None)
 
-    def _finish_refresh(self, error: str | None) -> None:
+    def _finish_refresh(self, error: UsageError | str | None) -> None:
         if error:
-            self.last_error = error
+            self.last_error = str(error)
         self.refreshing = False
         self.refresh_button.configure(state="normal")
         self._refresh_display()
         if self.refresh_pending:
             self.refresh_pending = False
             self.root.after(0, self.refresh)
+        else:
+            delay = (
+                CREDENTIAL_RETRY_MILLISECONDS
+                if isinstance(error, CredentialsUnavailableError)
+                else REFRESH_MILLISECONDS
+            )
+            self.refresh_timer = self.root.after(delay, self._scheduled_refresh)
 
     def _scheduled_refresh(self) -> None:
+        self.refresh_timer = None
         self.refresh()
-        self.root.after(REFRESH_MILLISECONDS, self._scheduled_refresh)
 
     def _minute_tick(self) -> None:
         self._refresh_display()
