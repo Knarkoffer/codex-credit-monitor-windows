@@ -3,6 +3,8 @@
 Codex Credit Monitor is a small Windows desktop app that shows your Codex plan
 usage or enterprise credit allocation, how quickly you are using it, and when
 the current window resets. It refreshes when it opens and then every 15 minutes.
+If the token file is unavailable, it retries every 2 minutes until it can read
+the login again, including when the selected WSL distribution is stopped.
 
 ![Codex Credit Monitor showing plan usage, an expiry forecast, and the usage history graph](docs/images/usage-monitor.png)
 

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from codex_credit_monitor_windows.domain import UsageMetric
 from codex_credit_monitor_windows.usage import (
     Credentials,
+    CredentialsUnavailableError,
     UsageError,
     decode_usage,
     fetch_usage,
@@ -158,7 +159,7 @@ class UsageDecoderTests(TestCase):
     def test_stopped_configured_wsl_distribution_has_specific_error(
         self, _running_state
     ):
-        with self.assertRaises(UsageError) as caught:
+        with self.assertRaises(CredentialsUnavailableError) as caught:
             read_credentials(wsl_distro="Ubuntu-24.04")
 
         self.assertEqual(
@@ -166,6 +167,16 @@ class UsageDecoderTests(TestCase):
             "Selected WSL distribution 'Ubuntu-24.04' is not started yet, "
             "cannot access token.",
         )
+
+    def test_missing_auth_file_has_retryable_error(self):
+        with TemporaryDirectory() as directory:
+            with self.assertRaises(CredentialsUnavailableError):
+                read_credentials(path=Path(directory) / "auth.json")
+
+    def test_unreadable_auth_file_has_retryable_error(self):
+        with patch.object(Path, "read_text", side_effect=PermissionError):
+            with self.assertRaises(CredentialsUnavailableError):
+                read_credentials(path=Path("auth.json"))
 
     def test_rejects_partial_response_without_exposing_body(self):
         secret = "private-value-that-must-not-appear"
