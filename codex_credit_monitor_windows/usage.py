@@ -40,6 +40,10 @@ class UsageError(RuntimeError):
     pass
 
 
+class CredentialsUnavailableError(UsageError):
+    pass
+
+
 @dataclass(frozen=True)
 class Credentials:
     access_token: str
@@ -71,7 +75,7 @@ def read_credentials(
         KeyError,
         subprocess.SubprocessError,
     ) as error:
-        raise UsageError(
+        raise CredentialsUnavailableError(
             "Codex OAuth credentials were not found or could not be read."
         ) from error
     access_claims, id_claims = (
@@ -113,7 +117,7 @@ def _read_auth_file(wsl_distro: str | None) -> str:
     distro = wsl_distro or os.environ.get("CODEX_CREDIT_MONITOR_WSL_DISTRO")
     if distro:
         if distribution_is_running(distro) is False:
-            raise UsageError(
+            raise CredentialsUnavailableError(
                 f"Selected WSL distribution '{distro}' is not started yet, "
                 "cannot access token."
             )
