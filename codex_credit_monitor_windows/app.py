@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 import tkinter as tk
+import webbrowser
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -44,6 +45,7 @@ REFRESH_MILLISECONDS = 15 * 60 * 1000
 CREDENTIAL_RETRY_MILLISECONDS = 2 * 60 * 1000
 WINDOWS_APP_USER_MODEL_ID = "CodexCreditMonitor.Windows"
 AUTOMATIC_LOGIN_SOURCE = "Automatic (Windows first, then default WSL)"
+REPOSITORY_URL = "https://github.com/Knarkoffer/codex-credit-monitor-windows"
 
 
 def _format_clock_time(minutes: int) -> str:
@@ -267,8 +269,12 @@ class MonitorApplication:
         self.settings = self.settings_store.load()
         self.store = HistoryStore()
         self.closing = False
+        self.about_dialog: tk.Toplevel | None = None
         self.tray = TrayController(
-            self._queue_restore, self._queue_close, image=icon_image
+            self._queue_restore,
+            self._queue_close,
+            on_about=self._queue_about,
+            image=icon_image,
         )
         self.result: CommitResult | None = None
         self.last_error: str | None = None
@@ -426,8 +432,11 @@ class MonitorApplication:
         ttk.Label(actions, text=VERSION_LABEL, foreground="#777777").grid(
             row=0, column=2, sticky="e", padx=12
         )
+        ttk.Button(actions, text="About", command=self.show_about).grid(
+            row=0, column=3, sticky="e", padx=(0, 8)
+        )
         ttk.Button(actions, text="Quit", command=self.close).grid(
-            row=0, column=3, sticky="e"
+            row=0, column=4, sticky="e"
         )
         actions.columnconfigure(2, weight=1)
 
@@ -460,6 +469,9 @@ class MonitorApplication:
 
     def _queue_close(self) -> None:
         self._queue_root_action(self.close)
+
+    def _queue_about(self) -> None:
+        self._queue_root_action(self.show_about)
 
     def _queue_root_action(self, action) -> None:
         if self.closing:
@@ -757,6 +769,81 @@ class MonitorApplication:
             self.result = replace(self.result, window=window, notify=False)
             self._reload_windows()
         self._refresh_display()
+
+    def show_about(self) -> None:
+        if self.closing:
+            return
+        self._restore_from_tray()
+        if self.about_dialog is not None and self.about_dialog.winfo_exists():
+            self.about_dialog.lift()
+            self.about_dialog.focus_set()
+            return
+        dialog = self.about_dialog = tk.Toplevel(self.root)
+        dialog.withdraw()
+        dialog.title("About Codex Credit Monitor")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        content = ttk.Frame(dialog, padding=24)
+        content.grid(sticky="nsew")
+        font_family = self.status_font.actual("family")
+        ttk.Label(
+            content,
+            text="Codex Credit Monitor",
+            font=(font_family, 16, "bold"),
+        ).grid(row=0, column=0, sticky="w", pady=(0, 16))
+        ttk.Label(content, text=VERSION_LABEL).grid(
+            row=1, column=0, sticky="w", pady=(0, 12)
+        )
+        ttk.Label(content, text="Developed by Knarkoffer").grid(
+            row=2, column=0, sticky="w", pady=(0, 12)
+        )
+
+        def open_repository(_event=None) -> str:
+            try:
+                if webbrowser.open(REPOSITORY_URL):
+                    return "break"
+            except (OSError, webbrowser.Error):
+                pass
+            messagebox.showerror(
+                "Unable to open browser",
+                f"Open the repository manually:\n\n{REPOSITORY_URL}",
+                parent=dialog,
+            )
+            return "break"
+
+        link = ttk.Label(
+            content,
+            text="View project on GitHub",
+            foreground="#0000ee",
+            font=(font_family, 10, "underline"),
+            cursor="hand2",
+            takefocus=True,
+        )
+        link.grid(row=3, column=0, sticky="w", pady=(0, 8))
+        for event in ("<Button-1>", "<Return>", "<space>"):
+            link.bind(event, open_repository)
+        ttk.Label(
+            content, text=REPOSITORY_URL.removeprefix("https://"), foreground="#777777"
+        ).grid(row=4, column=0, sticky="w")
+        close_button = ttk.Button(
+            content, text="Close", command=dialog.destroy, default="active"
+        )
+        close_button.grid(row=5, column=0, sticky="e", pady=(24, 0))
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        dialog.bind("<Return>", lambda _event: dialog.destroy())
+        dialog.update_idletasks()
+        x = (
+            self.root.winfo_rootx()
+            + (self.root.winfo_width() - dialog.winfo_reqwidth()) // 2
+        )
+        y = (
+            self.root.winfo_rooty()
+            + (self.root.winfo_height() - dialog.winfo_reqheight()) // 2
+        )
+        dialog.geometry(f"{x:+d}{y:+d}")
+        dialog.deiconify()
+        dialog.grab_set()
+        close_button.focus_set()
 
     def show_settings(self) -> None:
         dialog = tk.Toplevel(self.root)

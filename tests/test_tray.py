@@ -1,5 +1,6 @@
 from decimal import Decimal
 from unittest import TestCase
+from unittest.mock import Mock
 
 from codex_credit_monitor_windows.tray import TrayController, create_icon_image
 
@@ -63,6 +64,7 @@ class TrayControllerTests(TestCase):
         self.tray = TrayController(
             self._opened,
             self._quit,
+            on_about=Mock(),
             backend=self.backend,
             image=object(),
         )
@@ -92,7 +94,7 @@ class TrayControllerTests(TestCase):
         self.assertTrue(open_item.default)
 
     def test_quit_menu_requests_application_close(self):
-        quit_item = self.backend.menu[1]
+        quit_item = self.backend.menu[-1]
         quit_item.action(self.backend.icon, quit_item)
 
         self.assertEqual(self.quit, 1)

@@ -70,6 +70,9 @@ launcher runs the current source from the local project folder, using
 a package download; setup installs dependencies only when they are missing. See
 [`CHANGELOG.md`](CHANGELOG.md) for the changes in each version.
 
+Select **About** beside the version or in the tray menu to see the application
+version, developer credit, and a link to the GitHub repository.
+
 ### Manual setup and start
 
 If you prefer PowerShell, or need to see installation errors, run these commands
