@@ -6,9 +6,10 @@ the current window resets. It refreshes when it opens and then every 15 minutes.
 If the token file is unavailable, it retries every 2 minutes until it can read
 the login again, including when the selected WSL distribution is stopped.
 
-![Codex Credit Monitor showing plan usage, an expiry forecast, and the usage history graph](docs/images/usage-monitor.png)
+![Usage over time in Work mode, with recorded credit usage in blue, the working-time guide in green, and a dotted blue forecast through the reset](docs/images/usage-monitor.png)
 
-*Example in Personal mode, captured in version 0.3.0.*
+*Work mode in version 1.0.0 shows a Safe pace. The account has used 46.6% of its
+credits with 66.5% of the period’s working time elapsed.*
 
 ## Before you start
 
@@ -69,6 +70,9 @@ launcher runs the current source from the local project folder, using
 [`VERSION`](VERSION) for the displayed version. Version changes do not require
 a package download; setup installs dependencies only when they are missing. See
 [`CHANGELOG.md`](CHANGELOG.md) for the changes in each version.
+
+Select **About** beside the version or in the tray menu to see the application
+version, developer credit, and a link to the GitHub repository.
 
 ### Manual setup and start
 

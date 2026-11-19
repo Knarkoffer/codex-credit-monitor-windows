@@ -19,6 +19,7 @@ class TrayController:
         on_open: Callable[[], None],
         on_quit: Callable[[], None],
         *,
+        on_about: Callable[[], None],
         backend: Any | None = None,
         image: Any | None = None,
     ) -> None:
@@ -28,6 +29,7 @@ class TrayController:
             backend = pystray
         self._on_open = on_open
         self._on_quit = on_quit
+        self._on_about = on_about
         self._started = False
         self._minimize_hint_shown = False
         self._icon = backend.Icon(
@@ -36,6 +38,7 @@ class TrayController:
             APPLICATION_NAME,
             menu=backend.Menu(
                 backend.MenuItem("Open", self._open, default=True),
+                backend.MenuItem("About", self._about),
                 backend.MenuItem("Quit", self._quit),
             ),
         )
@@ -78,6 +81,9 @@ class TrayController:
 
     def _quit(self, _icon: Any, _item: Any) -> None:
         self._on_quit()
+
+    def _about(self, _icon: Any, _item: Any) -> None:
+        self._on_about()
 
 
 def create_icon_image() -> Any:

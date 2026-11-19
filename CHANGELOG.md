@@ -3,6 +3,15 @@
 Entries use the date of the application version change. Version history before
 0.2.0 was reconstructed from repository history without rewriting Git history.
 
+## 1.0.0 - 2026-11-16
+
+Added by: Knarkoffer
+
+### Added
+
+- Add an About dialog beside the version in the bottom bar and in the tray menu,
+  showing the application version, developer credit, and a GitHub repository link.
+
 ## 0.6.3 - 2026-10-21
 
 Added by: Knarkoffer
